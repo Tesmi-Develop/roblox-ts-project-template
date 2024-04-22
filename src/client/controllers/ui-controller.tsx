@@ -13,7 +13,6 @@ const PlayerGui = LocalPlayer?.WaitForChild("PlayerGui") as PlayerGui;
 @Controller({})
 export class UiController implements OnStart {
 	public onStart() {
-		this.disableCore();
 		root.render(
 			createPortal(
 				<ReflexProvider producer={RootProducer}>
@@ -22,9 +21,5 @@ export class UiController implements OnStart {
 				PlayerGui,
 			),
 		);
-	}
-
-	private disableCore() {
-		StarterGui.SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false);
 	}
 }
