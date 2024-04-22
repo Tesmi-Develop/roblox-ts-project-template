@@ -2,7 +2,6 @@ import { Controller, OnStart } from "@flamework/core";
 import { ReflexProvider } from "@rbxts/react-reflex";
 import { createPortal, createRoot } from "@rbxts/react-roblox";
 import React from "@rbxts/react";
-import { StarterGui } from "@rbxts/services";
 import { RootProducer } from "client/store";
 import { App } from "client/ui/app";
 import { LocalPlayer } from "shared/utilities/constants";
