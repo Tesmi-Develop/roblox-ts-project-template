@@ -22,3 +22,5 @@ export interface BindingAndSetter<T> {
 
 export type ReactComponent<T extends object> = (props: T) => React.ReactElement;
 export type AssetLink = string | number;
+
+export type VoidCallback = () => void;

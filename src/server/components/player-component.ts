@@ -6,7 +6,6 @@ import {
 	CharacterAddedWithValidate,
 	PlayerSelector,
 	PlayerSelectorParamenter,
-	PromisePlayerDisconnected,
 	ReturnGetReflexData,
 } from "shared/utilities/player";
 import { PlayerService } from "server/services/player-service";
@@ -16,20 +15,24 @@ import {
 	PlayerModules,
 	OnStopModule,
 } from "shared/decorators/constructor/player-module-decorator";
-import { Events } from "server/network";
 import { DeepCloneTable, GetIdentifier } from "shared/utilities/object-utilities";
-import { InferActions, Selector } from "@rbxts/reflex";
-import { Inject } from "shared/decorators/method/inject";
-import { OmitFirstParam, OmitMultipleParams } from "types/utility";
+import { InferActions } from "@rbxts/reflex";
+import { Inject } from "shared/decorators/field/inject";
+import { OmitMultipleParams, VoidCallback } from "types/utility";
 import { Janitor } from "@rbxts/janitor";
 import { promiseR15 } from "@rbxts/character-promise";
 import Signal from "@rbxts/rbx-better-signal";
-import { GetCurrentTime } from "shared/utilities/function-utilities";
+import { CreateInstanceWithountCallingConstructor, GetCurrentTime } from "shared/utilities/function-utilities";
 import { Profile } from "@rbxts/profileservice/globals";
 import { PlayerData, PlayerSave } from "types/player/player-data";
 import { Tags } from "shared/tags";
 import { Collisions } from "shared/collisions";
 import { PlayerDataSchema } from "shared/schemas/player-data";
+import { Constructor } from "@flamework/core/out/utility";
+import { INJECT_PLAYER_KEY } from "shared/decorators/field/Inject-player";
+import { t } from "@rbxts/t";
+import { array } from "@rbxts/react/src/prop-types";
+import { INJECT_PLAYER_MODULE_KEY } from "shared/decorators/field/Inject-player-module";
 
 //#region Types
 type DataSliceActions = InferActions<typeof dataSlice>;
@@ -220,20 +223,52 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 		});
 	}
 
+	private createModule(obj: Constructor) {
+		return CreateInstanceWithountCallingConstructor(obj);
+	}
+
+	private injectDepepedenciesInModule(instance: object) {
+		const injectPlayerComponentProperties = Reflect.getMetadata(instance, INJECT_PLAYER_KEY);
+		const injectPlayerModulesProperties = Reflect.getMetadata(instance, INJECT_PLAYER_MODULE_KEY);
+
+		// Step 1 - Inject player components
+		if (t.array(t.string)(injectPlayerComponentProperties)) {
+			injectPlayerComponentProperties.forEach((property) => {
+				instance[property as never] = this as never;
+			});
+		}
+
+		// Step 2 - Inject player modules
+		if (t.map(t.string, t.string)(injectPlayerModulesProperties)) {
+			injectPlayerModulesProperties.forEach((moduleSpecifier, property) => {
+				instance[property as never] = this.GetModule(moduleSpecifier as never);
+			});
+		}
+	}
+
 	private initModules() {
 		const constructors = PlayerModules;
+		const moduleConstructors: VoidCallback[] = [];
 
+		// Step 1 - Create Modules
 		constructors.forEach((obj) => {
-			const instance = new obj(this as never);
+			const [instance, constructor] = this.createModule(obj);
 			this.modules.set(GetIdentifier(obj), instance);
+			moduleConstructors.push(constructor);
 		});
 
-		this.modules.forEach((module) => {
+		// Step 2 - Inject dependencies
+		this.modules.forEach((module) => this.injectDepepedenciesInModule(module));
+
+		// Step 3 - Call constructors
+		moduleConstructors.forEach((constructor) => constructor());
+
+		this.modules.forEach((module, key) => {
 			const loadOrder = Reflect.getMetadata<number>(module, "playerModule:loadOrder") ?? 1;
 			this.orderedModules.push([module, loadOrder]);
 		});
 
-		this.orderedModules.sort(([_, Aorder], [__, Border]) => {
+		this.orderedModules.sort(([Aobject, Aorder], [Bobject, Border]) => {
 			return Aorder < Border;
 		});
 	}

@@ -515,3 +515,17 @@ export const fnDecorate = <T extends Callback>(target: T, ...fnDecorators: TFnDe
 export const Log = (...args: unknown[]) => {
 	print(`${IS_SERVER ? "Server: " : "Client: "}`, ...args);
 };
+
+export const CreateInstanceWithountCallingConstructor = <T extends object>(
+	constructor: Constructor<T>,
+	...args: ConstructorParameters<Constructor<T>>
+) => {
+	const instance = setmetatable({}, constructor as object) as T;
+	return [
+		instance,
+		() => {
+			const callback = constructor["constructor" as never] as Callback;
+			callback(instance, ...args);
+		},
+	] as const;
+};

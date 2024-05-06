@@ -47,7 +47,7 @@ export const IS_PROD = !IS_DEV;
 
 /** @client */
 export const PlayerGui =
-	IS_CLIENT && RunService.IsRunMode()
+	IS_CLIENT && RunService.IsRunning()
 		? (LocalPlayer.WaitForChild("PlayerGui") as PlayerGui)
 		: (undefined as unknown as PlayerGui);
 

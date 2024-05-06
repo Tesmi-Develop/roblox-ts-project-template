@@ -5,7 +5,7 @@ import { Players, StarterGui } from "@rbxts/services";
 import { PlayerComponent } from "server/components/player-component";
 import { Functions } from "server/network";
 import { ActionConstructors } from "shared/decorators/constructor/action-decorator";
-import { Inject } from "shared/decorators/method/inject";
+import { Inject } from "shared/decorators/field/inject";
 import { DataStoreName } from "shared/schemas/data-store-name";
 import { PlayerDataSchema } from "shared/schemas/player-data";
 import { FailedProcessAction } from "shared/utilities/function-utilities";

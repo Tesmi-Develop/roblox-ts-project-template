@@ -5,22 +5,20 @@ import {
 	OnStartModule,
 	OnStopModule,
 } from "shared/decorators/constructor/player-module-decorator";
+import { InjectPlayer } from "shared/decorators/field/Inject-player";
 import { PlayerSave, PlayerDynamicData } from "types/player/player-data";
 
 @PlayerModuleDecorator()
 export class TestModule implements OnSendData, OnStartModule, OnStopModule {
-	private playerComponent: PlayerComponent;
-
-	public constructor(playerComponent: PlayerComponent) {
-		this.playerComponent = playerComponent;
-	}
+	@InjectPlayer
+	private playerComponent!: PlayerComponent;
 
 	public OnSendData(saveData: PlayerSave, dynamicData: PlayerDynamicData) {
 		print("TestModule: OnSendData", saveData, dynamicData);
 	}
 
 	public OnStartModule() {
-		print("TestModule: OnStartModule");
+		print("TestModule: OnStartModule", this.playerComponent);
 	}
 
 	public OnStopModule() {

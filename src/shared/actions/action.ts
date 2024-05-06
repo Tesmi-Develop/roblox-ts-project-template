@@ -11,8 +11,10 @@ import { ServerResponse, ServerResponseError } from "types/server-response";
 type IsEmptyObject<T> = T extends Record<string, never> ? true : false;
 
 export abstract class Action<D extends object = {}, R = undefined> implements IAction<D> {
+	private static Cooldowns = new Map<string, Set<Player>>();
 	public readonly Name: string;
 	public readonly Data: D;
+	protected Cooldown = 0;
 	protected playerComponent!: PlayerComponent;
 	protected abstract readonly validator: t.check<D>;
 
@@ -23,7 +25,7 @@ export abstract class Action<D extends object = {}, R = undefined> implements IA
 		return this.validator(this.Data);
 	}
 
-	protected abstract doAction(): ServerResponse<R>;
+	protected abstract doAction(playerComponent: PlayerComponent): ServerResponse<R>;
 
 	/**
 	 * @server
@@ -33,13 +35,32 @@ export abstract class Action<D extends object = {}, R = undefined> implements IA
 		this.playerComponent = playerComponent;
 	}
 
+	private haveCooldown() {
+		return Action.Cooldowns.get(GetClassName(this))?.has(this.playerComponent.instance) ?? false;
+	}
+
+	private giveCooldown() {
+		if (this.Cooldown === 0) return;
+
+		const cooldowns = Action.Cooldowns.get(GetClassName(this)) ?? new Set<Player>();
+		cooldowns.add(this.playerComponent.instance);
+		Action.Cooldowns.set(GetClassName(this), cooldowns);
+
+		task.delay(this.Cooldown, () => cooldowns.delete(this.playerComponent.instance));
+	}
+
 	/**
 	 * @server
 	 */
 	@OnlyServer
 	public DoAction(): ServerResponse<R> {
 		assert(this.playerComponent, "Invalid player component");
-		return this.doAction();
+		if (this.haveCooldown()) {
+			return FailedProcessAction("You're sending too many actions!");
+		}
+		const result = this.doAction(this.playerComponent);
+		this.giveCooldown();
+		return result;
 	}
 
 	/**
