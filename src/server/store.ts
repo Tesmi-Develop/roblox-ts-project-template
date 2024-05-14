@@ -13,22 +13,6 @@ const broadcaster = createBroadcaster({
 	dispatch: (player: Player, actions: BroadcastAction[]) => {
 		Events.Dispatch.fire(player, actions);
 	},
-
-	beforeDispatch: (player, action) => {
-		if (action.arguments[0] !== player.Name) {
-			return;
-		}
-
-		return action;
-	},
-
-	beforeHydrate: (player, state) => {
-		return {
-			Data: {
-				[player.Name]: state.Data[player.Name],
-			},
-		};
-	},
 });
 RootProducer.applyMiddleware(broadcaster.middleware);
 

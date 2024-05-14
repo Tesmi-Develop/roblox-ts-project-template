@@ -1,13 +1,6 @@
 import { Dependency, Flamework, Modding, OnStart, Reflect } from "@flamework/core";
 import { Component, BaseComponent, Components } from "@flamework/components";
-import { RootProducer } from "server/store";
-import { SelectPlayerData, dataSlice } from "shared/slices/save-slice";
-import {
-	CharacterAddedWithValidate,
-	PlayerSelector,
-	PlayerSelectorParamenter,
-	ReturnGetReflexData,
-} from "shared/utilities/player";
+import { CharacterAddedWithValidate } from "shared/utilities/player";
 import { PlayerService } from "server/services/player-service";
 import {
 	OnStartModule,
@@ -16,13 +9,17 @@ import {
 	OnStopModule,
 } from "shared/decorators/constructor/player-module-decorator";
 import { DeepCloneTable, GetIdentifier } from "shared/utilities/object-utilities";
-import { InferActions } from "@rbxts/reflex";
+import { BroadcastAction, Broadcaster, createBroadcaster, createProducer, Producer, Selector } from "@rbxts/reflex";
 import { Inject } from "shared/decorators/field/inject";
-import { OmitMultipleParams, VoidCallback } from "types/utility";
+import { VoidCallback } from "types/utility";
 import { Janitor } from "@rbxts/janitor";
 import { promiseR15 } from "@rbxts/character-promise";
 import Signal from "@rbxts/rbx-better-signal";
-import { CreateInstanceWithountCallingConstructor, GetCurrentTime } from "shared/utilities/function-utilities";
+import {
+	CreateInstanceWithountCallingConstructor,
+	GetCurrentTime,
+	logAssert,
+} from "shared/utilities/function-utilities";
 import { Profile } from "@rbxts/profileservice/globals";
 import { PlayerData, PlayerSave } from "types/player/player-data";
 import { Tags } from "shared/tags";
@@ -31,33 +28,32 @@ import { PlayerDataSchema } from "shared/schemas/player-data";
 import { Constructor } from "@flamework/core/out/utility";
 import { INJECT_PLAYER_KEY } from "shared/decorators/field/Inject-player";
 import { t } from "@rbxts/t";
-import { array } from "@rbxts/react/src/prop-types";
 import { INJECT_PLAYER_MODULE_KEY } from "shared/decorators/field/Inject-player-module";
-
-//#region Types
-type DataSliceActions = InferActions<typeof dataSlice>;
-
-type PlayerActions = {
-	[K in keyof DataSliceActions]: (
-		...args: Parameters<OmitMultipleParams<DataSliceActions[K], 2>>
-	) => ReturnType<DataSliceActions[K]>;
-};
-//#endregion
+import { Events } from "server/network";
+import { playerProducer } from "shared/player-producer";
+import { Players } from "@rbxts/services";
 
 @Component({})
 export class PlayerComponent extends BaseComponent<{}, Player> implements OnStart {
 	public readonly Name = this.instance.Name;
 	public readonly UserId = this.instance.UserId;
-	public readonly Actions = {} as PlayerActions;
+	public readonly Actions = {} as ReturnType<typeof playerProducer["getDispatchers"]>;
 	public readonly Janitor = new Janitor();
 
 	@Inject()
 	private playerService!: PlayerService;
+	@Inject()
+	private components!: Components;
 	private destroyConnections: (() => void)[] = [];
 	private modules = new Map<string, object>();
 	private orderedModules: [object, number][] = [];
 	private isInitialized = false;
+	private isStartedReplication = false;
 	private initializeSignal?: Signal<() => void>;
+	private producer!: typeof playerProducer;
+	private broadcaster!: Broadcaster;
+	private profile!: Profile<PlayerSave>;
+	private isLocked = false;
 
 	public static onAdded(callback: (component: PlayerComponent, player: Player) => void) {
 		return Dependency<Components>().onComponentAdded<PlayerComponent>(async (component, player) => {
@@ -70,7 +66,7 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 		return Dependency<Components>().onComponentRemoved<PlayerComponent>(callback as never);
 	}
 
-	async onStart() {
+	public async onStart() {
 		this.initActions();
 		const dynamicData = DeepCloneTable(PlayerDataSchema.Dynamic);
 
@@ -79,16 +75,16 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 
 		// Step 2: Load profile data
 		const profileData = await this.initProfile();
+		task.wait(10);
+		const playerData = { Save: profileData, Dynamic: dynamicData };
 
 		// Step 3: Invoke onSendData
-		this.invokeOnSendDataEvent({ Save: profileData, Dynamic: dynamicData });
+		this.invokeOnSendDataEvent(playerData);
 
-		// Step 4: Set player data
-		this.Actions.SetPlayerData({
-			Dynamic: DeepCloneTable(dynamicData),
-			Save: DeepCloneTable(profileData),
-		});
+		// Step 4: Initialize producer
+		this.initProducer(playerData);
 
+		// Step 5: Ready to initialize
 		this.isInitialized = true;
 		this.initializeSignal?.Fire();
 		this.initializeSignal?.Destroy();
@@ -110,32 +106,31 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 		});
 	}
 
-	private invokeOnSendDataEvent(data: PlayerData) {
-		this.orderedModules.forEach(([module]) => {
-			if (!Flamework.implements<OnSendData>(module)) return;
-
-			try {
-				module.OnSendData(data.Save, data.Dynamic);
-			} catch (error) {
-				warn(`[PlayerComponent: ${this.instance.Name}] ${error}`);
-			}
-		});
-	}
-
 	public ResetData() {
 		const data = DeepCloneTable(PlayerDataSchema);
 		this.invokeOnSendDataEvent(data);
 
-		this.Actions.SetPlayerData(DeepCloneTable(data));
+		this.producer.setState(data);
 	}
 
 	public GetInitialized() {
 		return this.isInitialized;
 	}
 
-	/**
-	 * @metadata macro
-	 */
+	public GetStartedReplication() {
+		return this.isStartedReplication;
+	}
+
+	public LockComponent() {
+		this.isLocked = true;
+	}
+
+	public UnlockComponent() {
+		this.isLocked = false;
+		this.TryDestroy();
+	}
+
+	/** @metadata macro */
 	public GetModule<T>(moduleSpecifier?: Modding.Generic<T, "id">): T {
 		assert(moduleSpecifier, "Must specify a module");
 
@@ -152,13 +147,46 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 		this.initializeSignal.Wait();
 	}
 
-	public GetReflexData<S extends PlayerSelector | unknown = unknown>(
-		selector?: S,
-		...args: PlayerSelectorParamenter<S>
-	): ReturnGetReflexData<S> {
-		return selector
-			? (RootProducer.getState((selector as Callback)(this.instance.Name, ...args)) as ReturnGetReflexData<S>)
-			: (RootProducer.getState().Data[this.instance.Name]! as ReturnGetReflexData<S>);
+	public GetData(): PlayerData;
+	public GetData<S>(selector: Selector<PlayerData, S>): S;
+
+	public GetData(selector?: Selector<PlayerData, unknown>) {
+		this.validateInitialized();
+		return this.producer.getState(selector as never);
+	}
+
+	public Subscribe(listener: (state: PlayerData, previousState: PlayerData) => void): () => void;
+
+	public Subscribe<T>(selector: (state: PlayerData) => T, listener: (state: T, previousState: T) => void): () => void;
+
+	public Subscribe<T>(
+		selector: (state: PlayerData) => T,
+		predicate: ((state: T, previousState: T) => boolean) | undefined,
+		listener: (state: T, previousState: T) => void,
+	): () => void;
+
+	public Subscribe(...args: unknown[]) {
+		this.validateInitialized();
+		return this.producer.subscribe(...(args as Parameters<Producer["subscribe"]>));
+	}
+
+	public StartReplication() {
+		if (!this.isInitialized || this.isStartedReplication) return;
+
+		this.broadcaster.start(this.instance);
+		this.isStartedReplication = true;
+	}
+
+	public ConnectOnLeaveSynced(callback: () => void) {
+		this.destroyConnections.push(callback);
+		let isConnected = true;
+
+		return () => {
+			if (!isConnected) return;
+			const index = this.destroyConnections.indexOf(callback);
+			index !== -1 && this.destroyConnections.remove(index);
+			isConnected = false;
+		};
 	}
 
 	private proccessNewCharacter(character: Model) {
@@ -179,23 +207,79 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 		}
 	}
 
+	public TryDestroy(): boolean {
+		if (this.instance.IsDescendantOf(Players)) return false;
+		if (!this.isInitialized || !this.isStartedReplication || this.isLocked) return false;
+
+		this.components.removeComponent<PlayerComponent>(this.instance);
+		return true;
+	}
+
+	private validateInitialized() {
+		logAssert(this.isInitialized, "PlayerComponent must be initialized");
+	}
+
 	private initActions() {
 		setmetatable(this.Actions, {
 			__index:
 				(_, key) =>
 				(...args: unknown[]) => {
-					RootProducer[key as keyof DataSliceActions](this.instance.Name, ...(args as never[]));
+					if (!this.isInitialized) return;
+					const action = this.producer[key as never] as Callback;
+					action(...args);
 				},
 		});
 	}
 
-	private releaseProfile(profile: Profile<PlayerSave>) {
-		profile.Data.LastUpdate = GetCurrentTime();
-		profile.Release();
+	private initProducer(playerData: PlayerData) {
+		this.producer = playerProducer.clone();
+		const producers: Record<keyof PlayerData, Producer> = {
+			Save: createProducer(playerData.Save, this.producer.getActions() as never),
+			Dynamic: createProducer(playerData.Dynamic, this.producer.getActions() as never),
+		};
+
+		this.broadcaster = createBroadcaster({
+			producers: producers,
+			dispatch: (player: Player, actions: BroadcastAction[]) => {
+				Events.Dispatch.fire(player, actions);
+			},
+
+			beforeHydrate: (player, state) => {
+				return {
+					playerData: state,
+				} as object;
+			},
+		});
+
+		this.producer.subscribe((data) => {
+			this.profile.Data = data.Save;
+		});
+
+		this.producer.setState(playerData);
+		this.producer.applyMiddleware(this.broadcaster.middleware);
+		this.Janitor.Add(this.producer, "destroy");
+	}
+
+	private invokeOnSendDataEvent(data: PlayerData) {
+		this.orderedModules.forEach(([module]) => {
+			if (!Flamework.implements<OnSendData>(module)) return;
+
+			try {
+				module.OnSendData(data.Save, data.Dynamic);
+			} catch (error) {
+				warn(`[PlayerComponent: ${this.instance.Name}] ${error}`);
+			}
+		});
+	}
+
+	private releaseProfile() {
+		this.profile.Data.LastUpdate = GetCurrentTime();
+		this.profile.Data.IsNewProfile = false;
+		this.profile.Release();
 	}
 
 	private onFailedLoadProfile() {
-		this.ConnectOnLeaveSynced(() => this.Actions.DeletePlayerData());
+		// Here you can handle the fail
 	}
 
 	private initProfile() {
@@ -203,17 +287,7 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 			this.playerService
 				.LoadProfile(this.instance)
 				.then((profile) => {
-					const disconnect = RootProducer.subscribe(SelectPlayerData(this.instance.Name), (data) => {
-						if (!data) return;
-						profile.Data = data.Save;
-					});
-
-					this.Janitor.Add(() => {
-						RootProducer.DeletePlayerData(this.instance.Name);
-						disconnect();
-						this.releaseProfile(profile);
-					});
-
+					this.profile = profile;
 					resolve(profile.Data);
 				})
 				.catch(() => {
@@ -273,18 +347,6 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 		});
 	}
 
-	public ConnectOnLeaveSynced(callback: () => void) {
-		this.destroyConnections.push(callback);
-		let isConnected = true;
-
-		return () => {
-			if (!isConnected) return;
-			const index = this.destroyConnections.indexOf(callback);
-			index !== -1 && this.destroyConnections.remove(index);
-			isConnected = false;
-		};
-	}
-
 	public destroy() {
 		this.orderedModules.forEach(([module]) => {
 			if (Flamework.implements<OnStopModule>(module)) {
@@ -300,6 +362,7 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 			!success && warn(`[PlayerComponent: ${this.instance.Name}] ${output}`);
 		});
 
+		this.releaseProfile();
 		super.destroy();
 		this.Janitor.Destroy();
 	}

@@ -3,13 +3,18 @@ import { Service, OnStart, Flamework, Modding } from "@flamework/core";
 import { GetProfileStore } from "@rbxts/profileservice";
 import { Players, StarterGui } from "@rbxts/services";
 import { PlayerComponent } from "server/components/player-component";
-import { Functions } from "server/network";
+import { Events, Functions } from "server/network";
 import { ActionConstructors } from "shared/decorators/constructor/action-decorator";
 import { Inject } from "shared/decorators/field/inject";
 import { DataStoreName } from "shared/schemas/data-store-name";
 import { PlayerDataSchema } from "shared/schemas/player-data";
 import { FailedProcessAction } from "shared/utilities/function-utilities";
-import { ForeachInitedPlayers, GetPlayerComponent, PromisePlayerDisconnected } from "shared/utilities/player";
+import {
+	ForeachInitedPlayers,
+	GetPlayerComponent,
+	PromisePlayerDisconnected,
+	WaitPlayerComponent,
+} from "shared/utilities/player";
 import { IAction } from "types/IAction";
 import { OnPlayerJoined, OnPlayerLeaved } from "types/player/player-events";
 
@@ -27,8 +32,8 @@ export class PlayerService implements OnStart {
 		Players.PlayerAdded.Connect((player) => {
 			this.components.addComponent<PlayerComponent>(player);
 
-			PromisePlayerDisconnected(player).then(() => {
-				this.components.removeComponent<PlayerComponent>(player);
+			PromisePlayerDisconnected(player).then(async () => {
+				(await this.components.waitForComponent<PlayerComponent>(player)).TryDestroy();
 			});
 		});
 
@@ -107,6 +112,14 @@ export class PlayerService implements OnStart {
 			}
 
 			return FailedProcessAction("Failed to process action");
+		});
+
+		Events.StartReplication.connect(async (player) => {
+			if (GetPlayerComponent(player)?.GetStartedReplication()) return;
+
+			const playerComponent = await WaitPlayerComponent(player);
+			await playerComponent.WaitForInitialized();
+			playerComponent.StartReplication();
 		});
 	}
 }

@@ -1,18 +1,9 @@
-import {
-	InferState,
-	InferActions,
-	combineProducers,
-	createBroadcastReceiver,
-	ProducerMiddleware,
-	Selector,
-} from "@rbxts/reflex";
+import { InferState, InferActions, combineProducers, createBroadcastReceiver, ProducerMiddleware } from "@rbxts/reflex";
 import { Slices } from "shared/slices";
 import { Events } from "./network";
 import { ReplicatedStorage, RunService } from "@rbxts/services";
-import { SelectPlayerData } from "shared/slices/save-slice";
-import { LocalPlayer } from "shared/utilities/constants";
-import { PlayerSelector, PlayerSelectorParamenter, ReturnGetReflexData } from "shared/utilities/player";
 import { ClientSlices } from "./slices";
+import { playerProducer } from "shared/player-producer";
 
 export type RootState = InferState<typeof RootProducer>;
 export type RootActions = InferActions<typeof RootProducer>;
@@ -20,17 +11,20 @@ export type RootProducer = typeof RootProducer;
 export const RootProducer = combineProducers({
 	...ClientSlices,
 	...Slices,
+	playerData: playerProducer,
 });
 
 const event = ReplicatedStorage.FindFirstChild("REFLEX_DEVTOOLS") as RemoteEvent;
 const enabled = ReplicatedStorage.FindFirstChild("REFLEX_DEVTOOLS_ENABLED") as BoolValue;
+
+const IsEnableReflexDevTools = () => RunService.IsStudio() && event && enabled && enabled.Value;
 
 export const devToolsMiddleware: ProducerMiddleware<RootState, RootActions> = () => {
 	return (nextAction, actionName) => {
 		return (...args) => {
 			const state = nextAction(...args);
 
-			if (RunService.IsStudio() && event && enabled && enabled.Value) {
+			if (IsEnableReflexDevTools()) {
 				event.FireServer({ name: actionName, args: [...args], state });
 			}
 
@@ -45,18 +39,18 @@ const receiver = createBroadcastReceiver({
 	},
 });
 
-export const GetServerData = <S extends PlayerSelector | unknown = unknown>(
-	selector?: S,
-	...args: PlayerSelectorParamenter<S>
-) =>
-	selector
-		? (RootProducer.getState((selector as Callback)(LocalPlayer.Name, ...args)) as ReturnGetReflexData<S>)
-		: (RootProducer.getState(SelectPlayerData(LocalPlayer.Name)) as ReturnGetReflexData<S>);
-
 RootProducer.applyMiddleware(receiver.middleware);
 RootProducer.applyMiddleware(devToolsMiddleware);
 
-Events.Dispatch.connect((actions) => receiver.dispatch(actions));
+Events.Dispatch.connect((actions) => {
+	receiver.dispatch(actions);
+	if (IsEnableReflexDevTools()) {
+		actions.forEach((action) => {
+			if (action.name !== "__hydrate__") return;
+			event.FireServer({ name: "Hydrate", args: action.arguments, state: RootProducer.getState() });
+		});
+	}
+});
 
 _G.ROOT_PRODUCER = RootProducer;
 export default RootProducer;

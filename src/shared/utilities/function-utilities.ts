@@ -529,3 +529,16 @@ export const CreateInstanceWithountCallingConstructor = <T extends object>(
 		},
 	] as const;
 };
+
+export function logError(message?: string, displayTraceback = true): never {
+	return error(`${message ?? ""} \n \n ${displayTraceback && debug.traceback("", 2)}`);
+}
+
+export function logAssert<T>(condition: T, message?: string, displayTraceback = true): asserts condition {
+	!condition &&
+		error(
+			`${message ?? ""} \n------------------------Traceback------------------------ ${
+				displayTraceback && debug.traceback("", 2)
+			}`,
+		);
+}

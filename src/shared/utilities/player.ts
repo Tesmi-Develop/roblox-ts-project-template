@@ -5,7 +5,6 @@ import { Players } from "@rbxts/services";
 import type { PlayerComponent } from "server/components/player-component";
 import { IS_SERVER } from "./constants";
 import { GetServerRootProducer } from "./server";
-import { SelectPlayerData } from "shared/slices/save-slice";
 import { GetClientRootProducer } from "./client";
 import { CombineProducers, Selector } from "@rbxts/reflex";
 import { OmitFirstParam } from "types/utility";
@@ -22,6 +21,12 @@ export async function PromisePlayerDisconnected(player: Player) {
 export const GetPlayerComponent = (player: Player) => {
 	const components = Dependency<Components>();
 	return components.getComponent<PlayerComponent>(player)!;
+};
+
+/** @server */
+export const WaitPlayerComponent = (player: Player) => {
+	const components = Dependency<Components>();
+	return components.waitForComponent<PlayerComponent>(player);
 };
 
 /** @server */
@@ -46,15 +51,6 @@ type SharedRootProducer = CombineProducers<typeof Slices>;
 export const GetRootStore = () => {
 	return (IS_SERVER ? GetServerRootProducer() : GetClientRootProducer()) as SharedRootProducer;
 };
-
-export const GetPlayerData = <S extends PlayerSelector | undefined = undefined>(
-	player: Player | PlayerComponent,
-	selector?: S,
-	...args: PlayerSelectorParamenter<S>
-) =>
-	selector
-		? (GetRootStore().getState(selector(player.Name, ...args)) as ReturnGetReflexData<S>)
-		: (GetRootStore().getState(SelectPlayerData(player.Name)) as ReturnGetReflexData<S>);
 
 /** @server */
 export const ForeachInitedPlayers = (callback: (player: PlayerComponent) => void) => {

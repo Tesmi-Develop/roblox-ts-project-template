@@ -1,7 +1,6 @@
 import { Controller, OnInit, OnStart, Modding } from "@flamework/core";
 import { SharedClasses } from "@rbxts/shared-classes-reflex";
 import { RootProducer } from "client/store";
-import { SelectPlayerData } from "shared/slices/save-slice";
 import { LocalPlayer } from "shared/utilities/constants";
 
 @Controller({
@@ -13,14 +12,13 @@ export class PlayerController implements OnInit, OnStart {
 
 	onInit() {
 		return new Promise<void>((resolve) => {
-			const disconnect = RootProducer.subscribe(SelectPlayerData(LocalPlayer.Name), (data) => {
-				if (!data) {
-					warn("Failed to load player data");
-					return;
-				}
-				resolve();
-				disconnect();
-			});
+			const disconnect = RootProducer.subscribe(
+				(state) => state.playerData,
+				() => {
+					resolve();
+					disconnect();
+				},
+			);
 		});
 	}
 

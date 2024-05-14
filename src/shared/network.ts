@@ -7,7 +7,7 @@ interface ClientToServerEvents {
 }
 
 interface ServerToClientEvents {
-	Dispatch(Actions: BroadcastAction[]): void;
+	Dispatch(actions: BroadcastAction[]): void;
 }
 
 interface ClientToServerFunctions {
