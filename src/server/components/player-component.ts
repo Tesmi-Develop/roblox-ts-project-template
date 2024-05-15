@@ -9,7 +9,7 @@ import {
 	OnStopModule,
 } from "shared/decorators/constructor/player-module-decorator";
 import { DeepCloneTable, GetIdentifier } from "shared/utilities/object-utilities";
-import { BroadcastAction, Broadcaster, createBroadcaster, createProducer, Producer, Selector } from "@rbxts/reflex";
+import { BroadcastAction, Broadcaster, combineProducers, createBroadcaster, Selector } from "@rbxts/reflex";
 import { Inject } from "shared/decorators/field/inject";
 import { VoidCallback } from "types/utility";
 import { Janitor } from "@rbxts/janitor";
@@ -25,19 +25,21 @@ import { PlayerData, PlayerSave } from "types/player/player-data";
 import { Tags } from "shared/tags";
 import { Collisions } from "shared/collisions";
 import { PlayerDataSchema } from "shared/schemas/player-data";
-import { Constructor } from "@flamework/core/out/utility";
 import { INJECT_PLAYER_KEY } from "shared/decorators/field/Inject-player";
 import { t } from "@rbxts/t";
 import { INJECT_PLAYER_MODULE_KEY } from "shared/decorators/field/Inject-player-module";
 import { Events } from "server/network";
-import { playerProducer } from "shared/player-producer";
+import { CombinePlayerSlices, PlayerSlice, PlayerState } from "shared/player-producer";
 import { Players } from "@rbxts/services";
+import { Constructor } from "@flamework/core/out/utility";
+
+const HYDRATE_RATE = -1;
 
 @Component({})
 export class PlayerComponent extends BaseComponent<{}, Player> implements OnStart {
 	public readonly Name = this.instance.Name;
 	public readonly UserId = this.instance.UserId;
-	public readonly Actions = {} as ReturnType<typeof playerProducer["getDispatchers"]>;
+	public readonly Actions = {} as ReturnType<CombinePlayerSlices["getDispatchers"]>;
 	public readonly Janitor = new Janitor();
 
 	@Inject()
@@ -50,7 +52,7 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 	private isInitialized = false;
 	private isStartedReplication = false;
 	private initializeSignal?: Signal<() => void>;
-	private producer!: typeof playerProducer;
+	private producer!: CombinePlayerSlices;
 	private broadcaster!: Broadcaster;
 	private profile!: Profile<PlayerSave>;
 	private isLocked = false;
@@ -75,7 +77,6 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 
 		// Step 2: Load profile data
 		const profileData = await this.initProfile();
-		task.wait(10);
 		const playerData = { Save: profileData, Dynamic: dynamicData };
 
 		// Step 3: Invoke onSendData
@@ -110,7 +111,7 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 		const data = DeepCloneTable(PlayerDataSchema);
 		this.invokeOnSendDataEvent(data);
 
-		this.producer.setState(data);
+		this.producer.setState({ PlayerData: data });
 	}
 
 	public GetInitialized() {
@@ -147,10 +148,10 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 		this.initializeSignal.Wait();
 	}
 
-	public GetData(): PlayerData;
-	public GetData<S>(selector: Selector<PlayerData, S>): S;
+	public GetData(): PlayerState;
+	public GetData<S>(selector: Selector<PlayerState, S>): S;
 
-	public GetData(selector?: Selector<PlayerData, unknown>) {
+	public GetData(selector?: Selector<PlayerState, unknown>) {
 		this.validateInitialized();
 		return this.producer.getState(selector as never);
 	}
@@ -167,7 +168,7 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 
 	public Subscribe(...args: unknown[]) {
 		this.validateInitialized();
-		return this.producer.subscribe(...(args as Parameters<Producer["subscribe"]>));
+		return this.producer.subscribe(...(args as Parameters<typeof this.producer["subscribe"]>));
 	}
 
 	public StartReplication() {
@@ -207,7 +208,7 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 		}
 	}
 
-	public TryDestroy(): boolean {
+	public TryDestroy() {
 		if (this.instance.IsDescendantOf(Players)) return false;
 		if (!this.isInitialized || !this.isStartedReplication || this.isLocked) return false;
 
@@ -232,30 +233,21 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 	}
 
 	private initProducer(playerData: PlayerData) {
-		this.producer = playerProducer.clone();
-		const producers: Record<keyof PlayerData, Producer> = {
-			Save: createProducer(playerData.Save, this.producer.getActions() as never),
-			Dynamic: createProducer(playerData.Dynamic, this.producer.getActions() as never),
-		};
+		this.producer = combineProducers(PlayerSlice);
 
 		this.broadcaster = createBroadcaster({
-			producers: producers,
+			producers: PlayerSlice,
+			hydrateRate: HYDRATE_RATE,
 			dispatch: (player: Player, actions: BroadcastAction[]) => {
-				Events.Dispatch.fire(player, actions);
-			},
-
-			beforeHydrate: (player, state) => {
-				return {
-					playerData: state,
-				} as object;
+				Events.Dispatch.fire(player, actions, "playerData");
 			},
 		});
 
 		this.producer.subscribe((data) => {
-			this.profile.Data = data.Save;
+			this.profile.Data = data.PlayerData.Save;
 		});
 
-		this.producer.setState(playerData);
+		this.producer.setState({ PlayerData: playerData });
 		this.producer.applyMiddleware(this.broadcaster.middleware);
 		this.Janitor.Add(this.producer, "destroy");
 	}

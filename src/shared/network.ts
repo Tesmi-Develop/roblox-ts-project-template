@@ -7,7 +7,7 @@ interface ClientToServerEvents {
 }
 
 interface ServerToClientEvents {
-	Dispatch(actions: BroadcastAction[]): void;
+	Dispatch(actions: BroadcastAction[], typeDispatch: "playerData" | "global"): void;
 }
 
 interface ClientToServerFunctions {

@@ -13,7 +13,7 @@ export class PlayerController implements OnInit, OnStart {
 	onInit() {
 		return new Promise<void>((resolve) => {
 			const disconnect = RootProducer.subscribe(
-				(state) => state.playerData,
+				(state) => state.PlayerData,
 				() => {
 					resolve();
 					disconnect();

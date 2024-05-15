@@ -3,7 +3,7 @@ import { Slices } from "shared/slices";
 import { Events } from "./network";
 import { ReplicatedStorage, RunService } from "@rbxts/services";
 import { ClientSlices } from "./slices";
-import { playerProducer } from "shared/player-producer";
+import { PlayerSlice } from "shared/player-producer";
 
 export type RootState = InferState<typeof RootProducer>;
 export type RootActions = InferActions<typeof RootProducer>;
@@ -11,7 +11,7 @@ export type RootProducer = typeof RootProducer;
 export const RootProducer = combineProducers({
 	...ClientSlices,
 	...Slices,
-	playerData: playerProducer,
+	...PlayerSlice,
 });
 
 const event = ReplicatedStorage.FindFirstChild("REFLEX_DEVTOOLS") as RemoteEvent;
@@ -42,12 +42,12 @@ const receiver = createBroadcastReceiver({
 RootProducer.applyMiddleware(receiver.middleware);
 RootProducer.applyMiddleware(devToolsMiddleware);
 
-Events.Dispatch.connect((actions) => {
+Events.Dispatch.connect((actions, _type) => {
 	receiver.dispatch(actions);
 	if (IsEnableReflexDevTools()) {
 		actions.forEach((action) => {
 			if (action.name !== "__hydrate__") return;
-			event.FireServer({ name: "Hydrate", args: action.arguments, state: RootProducer.getState() });
+			event.FireServer({ name: `Hydrate ${_type}`, args: [], state: RootProducer.getState() });
 		});
 	}
 });

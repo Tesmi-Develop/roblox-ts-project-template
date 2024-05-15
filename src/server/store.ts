@@ -11,7 +11,7 @@ export const RootProducer = combineProducers({
 const broadcaster = createBroadcaster({
 	producers: Slices,
 	dispatch: (player: Player, actions: BroadcastAction[]) => {
-		Events.Dispatch.fire(player, actions);
+		Events.Dispatch.fire(player, actions, "global");
 	},
 });
 RootProducer.applyMiddleware(broadcaster.middleware);

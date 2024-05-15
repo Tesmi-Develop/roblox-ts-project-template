@@ -1,7 +1,9 @@
-import { createProducer } from "@rbxts/reflex";
-import { PlayerDataSchema } from "shared/schemas/player-data";
-import { DeepCloneTable } from "shared/utilities/object-utilities";
+import { CombineProducers, InferState } from "@rbxts/reflex";
+import { playerProducer } from "./producer";
 
-export const playerProducer = createProducer(DeepCloneTable(PlayerDataSchema), {
-	// Actions
-});
+export const PlayerSlice = {
+	PlayerData: playerProducer,
+};
+
+export type CombinePlayerSlices = CombineProducers<typeof PlayerSlice>;
+export type PlayerState = InferState<CombinePlayerSlices>;
