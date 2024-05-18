@@ -32,7 +32,7 @@ export const WaitPlayerComponent = (player: Player) => {
 /** @server */
 export const IsInitedPlayer = (player: Player) => {
 	const components = Dependency<Components>();
-	return components.getComponent<PlayerComponent>(player)?.GetInitialized() === true;
+	return components.getComponent<PlayerComponent>(player)?.IsStatus("Started");
 };
 
 //#region Types
@@ -57,7 +57,7 @@ export const ForeachInitedPlayers = (callback: (player: PlayerComponent) => void
 	Players.GetPlayers().forEach((player) => {
 		const playerComponent = GetPlayerComponent(player);
 		if (!playerComponent) return;
-		if (!playerComponent.GetInitialized()) return;
+		if (!playerComponent.IsStatus("Started")) return;
 
 		callback(playerComponent);
 	});

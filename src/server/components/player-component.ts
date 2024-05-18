@@ -1,7 +1,6 @@
 import { Dependency, Flamework, Modding, OnStart, Reflect } from "@flamework/core";
 import { Component, BaseComponent, Components } from "@flamework/components";
 import { CharacterAddedWithValidate } from "shared/utilities/player";
-import { PlayerService } from "server/services/player-service";
 import {
 	OnStartModule,
 	OnSendData,
@@ -9,7 +8,14 @@ import {
 	OnStopModule,
 } from "shared/decorators/constructor/player-module-decorator";
 import { DeepCloneTable, GetIdentifier } from "shared/utilities/object-utilities";
-import { BroadcastAction, Broadcaster, combineProducers, createBroadcaster, Selector } from "@rbxts/reflex";
+import {
+	BroadcastAction,
+	Broadcaster,
+	combineProducers,
+	createBroadcaster,
+	InferActions,
+	Selector,
+} from "@rbxts/reflex";
 import { Inject } from "shared/decorators/field/inject";
 import { VoidCallback } from "types/utility";
 import { Janitor } from "@rbxts/janitor";
@@ -20,7 +26,6 @@ import {
 	GetCurrentTime,
 	logAssert,
 } from "shared/utilities/function-utilities";
-import { Profile } from "@rbxts/profileservice/globals";
 import { PlayerData, PlayerSave } from "types/player/player-data";
 import { Tags } from "shared/tags";
 import { Collisions } from "shared/collisions";
@@ -29,37 +34,48 @@ import { INJECT_PLAYER_KEY } from "shared/decorators/field/Inject-player";
 import { t } from "@rbxts/t";
 import { INJECT_PLAYER_MODULE_KEY } from "shared/decorators/field/Inject-player-module";
 import { Events } from "server/network";
-import { CombinePlayerSlices, PlayerSlice, PlayerState } from "shared/player-producer";
+import { CombinePlayerSlices, DispatchSerializer, PlayerSlice, PlayerState } from "shared/player-producer";
 import { Players } from "@rbxts/services";
 import { Constructor } from "@flamework/core/out/utility";
+import { Document } from "@rbxts/lapis";
+import { DataStoreWrapperService } from "server/services/data-store-service";
 
 const HYDRATE_RATE = -1;
+
+type Status = "Initializing" | "WaitForStarting" | "Started" | "Destroyed";
+export type PlayerDispatchers = ReturnType<CombinePlayerSlices["getDispatchers"]>;
+
+export interface IPlayerInteraction {
+	Actions: PlayerDispatchers;
+	SaveProfile: () => Promise<void>;
+	SetData: (data: PlayerData) => void;
+}
 
 @Component({})
 export class PlayerComponent extends BaseComponent<{}, Player> implements OnStart {
 	public readonly Name = this.instance.Name;
 	public readonly UserId = this.instance.UserId;
-	public readonly Actions = {} as ReturnType<CombinePlayerSlices["getDispatchers"]>;
+	public readonly Actions = {} as PlayerDispatchers;
 	public readonly Janitor = new Janitor();
 
 	@Inject()
-	private playerService!: PlayerService;
+	private dataStore!: DataStoreWrapperService;
 	@Inject()
 	private components!: Components;
 	private destroyConnections: (() => void)[] = [];
 	private modules = new Map<string, object>();
 	private orderedModules: [object, number][] = [];
-	private isInitialized = false;
-	private isStartedReplication = false;
-	private initializeSignal?: Signal<() => void>;
+	private status: Status = "Initializing";
+	private statusSignals = new Map<Status, Signal<() => void>>();
 	private producer!: CombinePlayerSlices;
 	private broadcaster!: Broadcaster;
-	private profile!: Profile<PlayerSave>;
+	private profile!: Document<PlayerSave>;
+	private isKeepMode = false;
 	private isLocked = false;
 
 	public static onAdded(callback: (component: PlayerComponent, player: Player) => void) {
 		return Dependency<Components>().onComponentAdded<PlayerComponent>(async (component, player) => {
-			await component.WaitForInitialized();
+			await component.WaitForStatus("Started");
 			callback(component, player as Player);
 		});
 	}
@@ -69,7 +85,6 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 	}
 
 	public async onStart() {
-		this.initActions();
 		const dynamicData = DeepCloneTable(PlayerDataSchema.Dynamic);
 
 		// Step 1: Initilize all modules
@@ -84,12 +99,10 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 
 		// Step 4: Initialize producer
 		this.initProducer(playerData);
+		this.initActions();
 
 		// Step 5: Ready to initialize
-		this.isInitialized = true;
-		this.initializeSignal?.Fire();
-		this.initializeSignal?.Destroy();
-		this.initializeSignal = undefined;
+		this.setStatus("WaitForStarting");
 
 		this.initCollision();
 
@@ -114,21 +127,46 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 		this.producer.setState({ PlayerData: data });
 	}
 
-	public GetInitialized() {
-		return this.isInitialized;
+	public SetData(data: PlayerData) {
+		if (this.isLocked) return;
+		this.setData(data);
 	}
 
-	public GetStartedReplication() {
-		return this.isStartedReplication;
+	public Keep() {
+		this.isKeepMode = true;
 	}
 
-	public LockComponent() {
+	public Release() {
+		this.isKeepMode = false;
+		this.TryDestroy();
+	}
+
+	public GetLocked() {
+		return this.isLocked;
+	}
+
+	public LockComponent(): IPlayerInteraction {
+		assert(!this.isLocked, "Component is already locked");
 		this.isLocked = true;
+
+		const actions = {} as PlayerDispatchers;
+
+		setmetatable(actions, {
+			__index:
+				(_, key) =>
+				(...args: unknown[]) =>
+					this.processAction(key as string, ...args),
+		});
+
+		return {
+			Actions: actions,
+			SaveProfile: () => this.saveProfile(),
+			SetData: (data: PlayerData) => this.setData(data),
+		};
 	}
 
 	public UnlockComponent() {
 		this.isLocked = false;
-		this.TryDestroy();
 	}
 
 	/** @metadata macro */
@@ -141,11 +179,19 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 		return module as T;
 	}
 
-	public async WaitForInitialized() {
-		if (this.GetInitialized()) return;
+	public GetStatus() {
+		return this.status;
+	}
 
-		!this.initializeSignal && (this.initializeSignal = new Signal());
-		this.initializeSignal.Wait();
+	public IsStatus(status: Status) {
+		return this.GetStatus() === status;
+	}
+
+	public async WaitForStatus(status: Status) {
+		if (this.IsStatus(status)) return;
+
+		!this.statusSignals.has(status) && this.statusSignals.set(status, new Signal());
+		this.statusSignals.get(status)!.Wait();
 	}
 
 	public GetData(): PlayerState;
@@ -172,10 +218,10 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 	}
 
 	public StartReplication() {
-		if (!this.isInitialized || this.isStartedReplication) return;
+		if (!this.IsStatus("WaitForStarting")) return;
 
 		this.broadcaster.start(this.instance);
-		this.isStartedReplication = true;
+		this.setStatus("Started");
 	}
 
 	public ConnectOnLeaveSynced(callback: () => void) {
@@ -188,6 +234,29 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 			index !== -1 && this.destroyConnections.remove(index);
 			isConnected = false;
 		};
+	}
+
+	public async SaveProfile() {
+		if (!this.IsStatus("Initializing")) return;
+		if (!this.isLocked) return;
+
+		return await this.saveProfile();
+	}
+
+	private saveProfile() {
+		return this.profile.save();
+	}
+
+	private setData(data: PlayerData) {
+		this.producer.setState({ PlayerData: data });
+		this.profile.write(data.Save);
+	}
+
+	private setStatus(status: Status) {
+		this.status = status;
+		this.statusSignals.get(status)?.Fire();
+		this.statusSignals.get(status)?.Destroy();
+		this.statusSignals.delete(status);
 	}
 
 	private proccessNewCharacter(character: Model) {
@@ -210,25 +279,32 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 
 	public TryDestroy() {
 		if (this.instance.IsDescendantOf(Players)) return false;
-		if (!this.isInitialized || !this.isStartedReplication || this.isLocked) return false;
+		if (!this.IsStatus("Started")) return false;
+		if (this.isKeepMode) return false;
 
 		this.components.removeComponent<PlayerComponent>(this.instance);
 		return true;
 	}
 
 	private validateInitialized() {
-		logAssert(this.isInitialized, "PlayerComponent must be initialized");
+		logAssert(!this.IsStatus("Initializing"), "PlayerComponent must be initialized");
+	}
+
+	private processAction(actionName: string, ...args: unknown[]) {
+		if (!this.IsStatus("Started")) return;
+
+		const state = this.producer[actionName as keyof PlayerDispatchers](
+			...(args as Parameters<PlayerDispatchers[keyof PlayerDispatchers]>),
+		);
+		this.profile.write(state.PlayerData.Save);
 	}
 
 	private initActions() {
 		setmetatable(this.Actions, {
 			__index:
 				(_, key) =>
-				(...args: unknown[]) => {
-					if (!this.isInitialized) return;
-					const action = this.producer[key as never] as Callback;
-					action(...args);
-				},
+				(...args: unknown[]) =>
+					!this.isLocked && this.processAction(key as string, ...args),
 		});
 	}
 
@@ -239,12 +315,8 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 			producers: PlayerSlice,
 			hydrateRate: HYDRATE_RATE,
 			dispatch: (player: Player, actions: BroadcastAction[]) => {
-				Events.Dispatch.fire(player, actions, "playerData");
+				Events.Dispatch.fire(player, DispatchSerializer.serialize(actions), "playerData");
 			},
-		});
-
-		this.producer.subscribe((data) => {
-			this.profile.Data = data.PlayerData.Save;
 		});
 
 		this.producer.setState({ PlayerData: playerData });
@@ -264,25 +336,27 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 		});
 	}
 
-	private releaseProfile() {
-		this.profile.Data.LastUpdate = GetCurrentTime();
-		this.profile.Data.IsNewProfile = false;
-		this.profile.Release();
+	private async releaseProfile() {
+		const data = this.profile.read();
+		this.profile.write({ ...data, LastUpdate: GetCurrentTime(), IsNewProfile: false });
+		await this.profile.close();
 	}
 
 	private onFailedLoadProfile() {
 		// Here you can handle the fail
+		print(`[PlayerComponent: ${this.instance.Name}] Failed to load profile`);
 	}
 
 	private initProfile() {
 		return new Promise<PlayerSave>((resolve) => {
-			this.playerService
+			this.dataStore
 				.LoadProfile(this.instance)
 				.then((profile) => {
 					this.profile = profile;
-					resolve(profile.Data);
+					resolve(DeepCloneTable(profile.read()));
 				})
-				.catch(() => {
+				.catch((er: string) => {
+					print(`[PlayerComponent: ${this.instance.Name}] ${er}`);
 					this.onFailedLoadProfile();
 					resolve(DeepCloneTable(PlayerDataSchema.Save));
 				});
@@ -354,8 +428,14 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 			!success && warn(`[PlayerComponent: ${this.instance.Name}] ${output}`);
 		});
 
+		this.statusSignals.forEach((signal) => {
+			signal.Destroy();
+		});
+		this.statusSignals.clear();
+
 		this.releaseProfile();
 		super.destroy();
 		this.Janitor.Destroy();
+		this.setStatus("Destroyed");
 	}
 }

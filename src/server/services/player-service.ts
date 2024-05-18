@@ -1,7 +1,8 @@
 import { Components } from "@flamework/components";
 import { Service, OnStart, Flamework, Modding } from "@flamework/core";
-import { GetProfileStore } from "@rbxts/profileservice";
+import { createCollection, setConfig } from "@rbxts/lapis";
 import { Players, StarterGui } from "@rbxts/services";
+import { PlayerTransaction } from "server/classes/player-transaction";
 import { PlayerComponent } from "server/components/player-component";
 import { Events, Functions } from "server/network";
 import { ActionConstructors } from "shared/decorators/constructor/action-decorator";
@@ -18,7 +19,6 @@ import {
 import { IAction } from "types/IAction";
 import { OnPlayerJoined, OnPlayerLeaved } from "types/player/player-events";
 
-const profileStore = GetProfileStore(DataStoreName, PlayerDataSchema["Save"]);
 const validateActionData = Flamework.createGuard<IAction>();
 
 @Service({})
@@ -40,24 +40,6 @@ export class PlayerService implements OnStart {
 		this.connectNetworkFunctions();
 		this.handlePlayersJoined();
 		this.handlePlayersLeaved();
-	}
-
-	public async LoadProfile(player: Player) {
-		const profile = profileStore.LoadProfileAsync(tostring(player.UserId), () => "Cancel");
-		assert(profile, "Failed to load profile");
-
-		profile.AddUserId(player.UserId);
-		profile.Reconcile();
-		profile.ListenToRelease(() => {
-			player.Kick("Profile was released");
-		});
-
-		if (!player.IsDescendantOf(Players)) {
-			profile.Release();
-			error("Failed to load profile");
-		}
-
-		return profile;
 	}
 
 	private clearStarterGUI() {
@@ -97,7 +79,7 @@ export class PlayerService implements OnStart {
 
 			if (!actionConstructor) return FailedProcessAction("Action not found");
 			if (!validateActionData(actionData)) return FailedProcessAction("Invalid action data");
-			if (!playerComponent || !playerComponent.GetInitialized())
+			if (!playerComponent || !playerComponent.IsStatus("Started"))
 				return FailedProcessAction("Player not initialized");
 
 			const action = new actionConstructor(actionData.Data as never);
@@ -115,10 +97,10 @@ export class PlayerService implements OnStart {
 		});
 
 		Events.StartReplication.connect(async (player) => {
-			if (GetPlayerComponent(player)?.GetStartedReplication()) return;
+			if (GetPlayerComponent(player)?.IsStatus("Started")) return;
 
 			const playerComponent = await WaitPlayerComponent(player);
-			await playerComponent.WaitForInitialized();
+			await playerComponent.WaitForStatus("WaitForStarting");
 			playerComponent.StartReplication();
 		});
 	}

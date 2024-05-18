@@ -542,3 +542,12 @@ export function logAssert<T>(condition: T, message?: string, displayTraceback = 
 			}`,
 		);
 }
+
+export const GetCurrentThread = <A extends unknown[]>() => {
+	const currentThread = coroutine.running();
+
+	return {
+		Yield: (...args: A) => coroutine.yield(currentThread, ...args),
+		Resume: () => coroutine.resume(currentThread) as LuaTuple<[success: boolean, ...result: A]>,
+	};
+};

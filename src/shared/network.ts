@@ -7,7 +7,13 @@ interface ClientToServerEvents {
 }
 
 interface ServerToClientEvents {
-	Dispatch(actions: BroadcastAction[], typeDispatch: "playerData" | "global"): void;
+	Dispatch(
+		actions: {
+			buffer: buffer;
+			blobs: defined[];
+		},
+		typeDispatch: "playerData" | "global",
+	): void;
 }
 
 interface ClientToServerFunctions {
