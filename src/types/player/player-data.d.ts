@@ -1,7 +1,6 @@
 export interface PlayerSave {
 	LastUpdate: number;
 	IsNewProfile: boolean;
-	Money: number;
 }
 
 type DynamicId = string;

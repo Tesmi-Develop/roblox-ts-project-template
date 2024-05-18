@@ -293,9 +293,7 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 	private processAction(actionName: string, ...args: unknown[]) {
 		if (!this.IsStatus("Started")) return;
 
-		const state = this.producer[actionName as keyof PlayerDispatchers](
-			...(args as Parameters<PlayerDispatchers[keyof PlayerDispatchers]>),
-		);
+		const state = (this.producer[actionName as never] as Callback)(...(args as [])) as PlayerState;
 		this.profile.write(state.PlayerData.Save);
 	}
 

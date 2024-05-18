@@ -5,7 +5,6 @@ export const PlayerDataSchema: PlayerData = {
 	Save: {
 		LastUpdate: GetCurrentTime(),
 		IsNewProfile: true,
-		Money: 0,
 	},
 	Dynamic: {},
 };
