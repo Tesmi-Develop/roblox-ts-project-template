@@ -49,6 +49,7 @@ export interface IPlayerInteraction {
 	Actions: PlayerDispatchers;
 	SaveProfile: () => Promise<void>;
 	SetData: (data: PlayerData) => void;
+	UnlockComponent: () => void;
 }
 
 @Component({})
@@ -162,11 +163,8 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 			Actions: actions,
 			SaveProfile: () => this.saveProfile(),
 			SetData: (data: PlayerData) => this.setData(data),
+			UnlockComponent: () => (this.isLocked = false),
 		};
-	}
-
-	public UnlockComponent() {
-		this.isLocked = false;
 	}
 
 	/** @metadata macro */

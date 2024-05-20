@@ -37,7 +37,7 @@ export class PlayerTransaction implements ITransactEntity {
 	}
 
 	public End() {
-		this.playerComponent.UnlockComponent();
+		this.playerInteraction.UnlockComponent();
 		this.playerComponent.Release();
 	}
 }

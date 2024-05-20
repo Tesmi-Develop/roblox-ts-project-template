@@ -1,5 +1,4 @@
 import { Networking } from "@flamework/networking";
-import { BroadcastAction } from "@rbxts/reflex";
 import { IAction } from "types/IAction";
 
 interface ClientToServerEvents {
