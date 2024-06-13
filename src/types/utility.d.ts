@@ -1,3 +1,4 @@
+import { BindingApi } from "@rbxts/pretty-react-hooks";
 import { Binding, useBinding } from "@rbxts/react";
 import type { PATCH_ACTION_REMOVE } from "shared/utilities/constants";
 import { Add, Eq } from "ts-arithmetic";
@@ -15,12 +16,17 @@ type ReturnMethods<T extends object> = ExtractKeys<T, Callback>;
 
 export type PatchDataType<D extends object> = Partial<{ [K in keyof D]: D[K] | typeof PATCH_ACTION_REMOVE }>;
 
-export interface BindingAndSetter<T> {
-	Binding: Binding<T>;
-	Set: ReturnType<typeof useBinding<T>>[1];
-}
-
 export type ReactComponent<T extends object> = (props: T) => React.ReactElement;
 export type AssetLink = string | number;
 
 export type VoidCallback = () => void;
+
+/**
+ * Makes a type deeply immutable.
+ */
+export type DeepReadonly<T> = T extends object ? { readonly [K in keyof T]: DeepReadonly<T[K]> } : T;
+
+/**
+ * Makes a type deeply mutable.
+ */
+export type DeepWritable<T> = T extends object ? { -readonly [K in keyof T]: DeepWritable<T[K]> } : T;

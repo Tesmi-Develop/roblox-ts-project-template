@@ -4,14 +4,14 @@ import { DataStoreService } from "@rbxts/services";
 import DataStoreServiceMock from "server/mock-datastore";
 import { DataStoreName } from "shared/schemas/data-store-name";
 import { PlayerDataSchema } from "shared/schemas/player-data";
-import { PlayerData } from "types/player/player-data";
+import { PlayerData } from "shared/schemas/player-data-types";
 
 @Service({})
 export class DataStoreWrapperService implements OnStart, OnInit {
 	private collection!: Collection<PlayerData["Save"]>;
 
 	private IsEnableDataStoreAPI() {
-		const [success, output] = pcall(() => DataStoreService.GetDataStore(DataStoreName));
+		const [success] = pcall(() => DataStoreService.GetDataStore(DataStoreName));
 		return success;
 	}
 

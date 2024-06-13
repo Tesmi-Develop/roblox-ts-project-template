@@ -1,24 +1,47 @@
 import { Controller, OnInit, OnStart, Modding } from "@flamework/core";
+import { Atom, atom, sync, SyncPayload } from "@rbxts/charm";
 import { SharedClasses } from "@rbxts/shared-classes-reflex";
-import { RootProducer } from "client/store";
-import { LocalPlayer } from "shared/utilities/constants";
+import { Events } from "client/network";
+import { DispatchSerializer, SyncerType } from "shared/network";
+import { ReflexDevToolController } from "./reflex-devtool-controller";
+import { Inject } from "shared/decorators/field/inject";
+import { GameData } from "shared/schemas/game-data";
+import { GetCurrentThread } from "shared/utilities/function-utilities";
+import { PlayerData } from "shared/schemas/player-data-types";
+
+export interface OnDataReplicated {
+	OnDataReplicated(): void;
+}
+
+export interface PlayerAtoms {
+	playerData: Atom<PlayerData>;
+	gameData: Atom<GameData>;
+}
 
 @Controller({
 	loadOrder: 0,
 })
 export class PlayerController implements OnInit, OnStart {
-	private tracks = new Map<Animation, AnimationTrack>();
-	public readonly RootProducer = RootProducer;
+	private atoms: SyncerType = {
+		playerData: atom<PlayerData>(undefined!),
+		gameData: atom<GameData>(undefined!),
+	};
+	private syncer = sync.client<SyncerType>({
+		atoms: this.atoms,
+	});
+	private isGotData = false;
+
+	@Inject
+	private reflexDevTools!: ReflexDevToolController;
 
 	onInit() {
-		return new Promise<void>((resolve) => {
-			const disconnect = RootProducer.subscribe(
-				(state) => state.PlayerData,
-				() => {
-					resolve();
-					disconnect();
-				},
-			);
+		const listeners = new Set<OnDataReplicated>();
+		Modding.onListenerAdded<OnDataReplicated>((obj) => listeners.add(obj));
+		Modding.onListenerRemoved<OnDataReplicated>((obj) => listeners.delete(obj));
+
+		this.StartReplication();
+		this.expectData().then(() => {
+			listeners.forEach((listener) => listener.OnDataReplicated());
 		});
 	}
 
@@ -28,33 +51,49 @@ export class PlayerController implements OnInit, OnStart {
 		return Modding.getObjectFromId(id) as T;
 	}
 
-	public StopAnimation(animation: Animation) {
-		const track = this.tracks.get(animation);
-		if (!track) return;
-
-		track.Stop();
-
-		return track;
+	public GetPlayerAtom() {
+		return this.atoms.playerData;
 	}
 
-	public PlayAnimation(animation: Animation): AnimationTrack {
-		const animator = LocalPlayer.Character?.FindFirstChildOfClass("Humanoid")?.FindFirstChildOfClass(
-			"Animator",
-		) as Animator;
+	public GetGameAtom() {
+		return this.atoms.gameData;
+	}
 
-		let track = this.tracks.get(animation);
+	public GetAtoms() {
+		return this.atoms;
+	}
 
-		if (track !== undefined) {
-			track.Play();
-			return track;
-		}
+	private async expectData() {
+		const thread = GetCurrentThread();
 
-		track = animator.LoadAnimation(animation);
-		track.Play();
+		Events.Dispatch.connect((payloadBuffer) => {
+			this.dispatch(payloadBuffer);
 
-		this.tracks.set(animation, track);
+			if (!this.isGotData) {
+				this.isGotData = true;
+				thread.Resume();
+			}
+		});
 
-		return track;
+		thread.Yield();
+	}
+
+	private dispatch(payloadBuffer: { buffer: buffer; blobs: defined[] }) {
+		const payload = DispatchSerializer.deserialize(payloadBuffer.buffer, payloadBuffer.blobs) as SyncPayload<
+			{
+				[K in keyof SyncerType]: SyncerType[K] extends Atom<infer R> ? R : never;
+			}
+		>;
+
+		this.syncer.sync(payload as never);
+
+		payload.data.playerData &&
+			this.reflexDevTools.DisplayData(`PlayerData-${payload.type}`, this.atoms.playerData());
+		payload.data.gameData && this.reflexDevTools.DisplayData(`GameData-${payload.type}`, this.atoms.gameData());
+	}
+
+	private StartReplication() {
+		Events.StartReplication.fire();
 	}
 
 	public onStart() {

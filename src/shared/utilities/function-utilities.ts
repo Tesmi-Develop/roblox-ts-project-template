@@ -6,6 +6,10 @@ import { KeyCode } from "@rbxts/pretty-react-hooks";
 import { PatchDataType, ReturnMethods } from "types/utility";
 import { Janitor } from "@rbxts/janitor";
 import { CharacterRigR15, validateR15 } from "@rbxts/character-promise";
+import { Atom } from "@rbxts/charm";
+import { None, produce } from "@rbxts/immut";
+import { Draft } from "@rbxts/immut/src/types-external";
+import type { PlayerModuleAtom } from "server/components/player-component/inject-atom";
 
 export const FindFirstAncestorOfClassWithPredict = <T extends keyof Instances>(
 	instance: Instance,
@@ -550,4 +554,18 @@ export const GetCurrentThread = <A extends unknown[]>() => {
 		Yield: (...args: A) => coroutine.yield(currentThread, ...args),
 		Resume: () => coroutine.resume(currentThread) as LuaTuple<[success: boolean, ...result: A]>,
 	};
+};
+
+type InferAtomState<T> = T extends Atom<infer S> ? S : T extends PlayerModuleAtom<infer S> ? S : never;
+
+export const MutateAtom = <T, C>(
+	atom: C,
+	recipe: (
+		draft: Draft<InferAtomState<C>>,
+	) => typeof draft | void | undefined | (T extends undefined ? typeof None : never),
+) => {
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	return (atom as Callback)(produce((atom as Callback)() as never, recipe as never)) as C extends Atom<any>
+		? void
+		: boolean;
 };

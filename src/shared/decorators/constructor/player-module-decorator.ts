@@ -1,6 +1,6 @@
 import { Reflect } from "@flamework/core";
 import { Constructor } from "@flamework/core/out/utility";
-import { PlayerDynamicData, PlayerSave } from "types/player/player-data";
+import { PlayerDynamicData, PlayerSave } from "shared/schemas/player-data-types";
 
 /** @server */
 export interface OnSendData {

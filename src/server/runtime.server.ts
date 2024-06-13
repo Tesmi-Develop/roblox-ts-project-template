@@ -1,5 +1,4 @@
 import { Flamework } from "@flamework/core";
-import("./store");
 
 Flamework.addPaths("src/server/components");
 Flamework.addPaths("src/server/services");

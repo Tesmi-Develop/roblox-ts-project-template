@@ -1,4 +1,5 @@
 import { Reflect } from "@flamework/core";
+import { DeepReadonly } from "types/utility";
 
 export function mapProperty<T extends object, K extends keyof T>(
 	object: T,
@@ -45,6 +46,18 @@ export function ReconcileTable<C extends object, T extends object>(originalObjec
 	}
 
 	return originalObject as T & C;
+}
+
+export function DeepFreezeTable<T extends object>(obj: T) {
+	for (const [key, value] of pairs(obj)) {
+		if (typeIs(value, "table")) {
+			DeepFreezeTable(value);
+			continue;
+		}
+	}
+	table.freeze(obj);
+
+	return obj as DeepReadonly<T>;
 }
 
 export function GetIdentifier(obj: object, suffix = ""): string {

@@ -3,7 +3,7 @@ import { t } from "@rbxts/t";
 import type { PlayerComponent } from "server/components/player-component";
 import { OnlyClient } from "shared/decorators/method/only-client";
 import { OnlyServer } from "shared/decorators/method/only-server";
-import { ClientFunctions } from "shared/network";
+import { ActionSerializer, ClientFunctions } from "shared/network";
 import { FailedProcessAction, GetClassName } from "shared/utilities/function-utilities";
 import { IAction } from "types/IAction";
 import { ServerResponse, ServerResponseError } from "types/server-response";
@@ -73,10 +73,12 @@ export abstract class Action<D extends object = {}, R = undefined> implements IA
 				resolve(FailedProcessAction("Cannot send action in studio")),
 			);
 		}
-		return ClientFunctions.DoAction({
-			Name: this.Name,
-			Data: this.Data,
-		}) as Promise<ServerResponse<R>>;
+		return ClientFunctions.DoAction(
+			ActionSerializer.serialize({
+				Name: this.Name,
+				Data: this.Data,
+			}),
+		) as Promise<ServerResponse<R>>;
 	}
 
 	constructor(data: IsEmptyObject<D> extends true ? void : D) {

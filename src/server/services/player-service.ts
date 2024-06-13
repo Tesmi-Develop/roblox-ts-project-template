@@ -1,14 +1,11 @@
 import { Components } from "@flamework/components";
 import { Service, OnStart, Flamework, Modding } from "@flamework/core";
-import { createCollection, setConfig } from "@rbxts/lapis";
 import { Players, StarterGui } from "@rbxts/services";
-import { PlayerTransaction } from "server/classes/player-transaction";
 import { PlayerComponent } from "server/components/player-component";
 import { Events, Functions } from "server/network";
 import { ActionConstructors } from "shared/decorators/constructor/action-decorator";
 import { Inject } from "shared/decorators/field/inject";
-import { DataStoreName } from "shared/schemas/data-store-name";
-import { PlayerDataSchema } from "shared/schemas/player-data";
+import { ActionSerializer } from "shared/network";
 import { FailedProcessAction } from "shared/utilities/function-utilities";
 import {
 	ForeachInitedPlayers,
@@ -23,7 +20,7 @@ const validateActionData = Flamework.createGuard<IAction>();
 
 @Service({})
 export class PlayerService implements OnStart {
-	@Inject()
+	@Inject
 	private components!: Components;
 
 	public onStart() {
@@ -73,7 +70,8 @@ export class PlayerService implements OnStart {
 	}
 
 	private connectNetworkFunctions() {
-		Functions.DoAction.setCallback((player, actionData) => {
+		Functions.DoAction.setCallback((player, actionBuffer) => {
+			const actionData = ActionSerializer.deserialize(actionBuffer.buffer, actionBuffer.blobs);
 			const playerComponent = GetPlayerComponent(player);
 			const actionConstructor = ActionConstructors.get(actionData.Name);
 
