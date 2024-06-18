@@ -5,9 +5,12 @@ import { Events } from "client/network";
 import { DispatchSerializer, SyncerType } from "shared/network";
 import { ReflexDevToolController } from "./reflex-devtool-controller";
 import { Inject } from "shared/decorators/field/inject";
-import { GameData } from "shared/schemas/game-data";
+import { GameData, GameDataSchema } from "shared/schemas/game-data";
 import { GetCurrentThread } from "shared/utilities/function-utilities";
 import { PlayerData } from "shared/schemas/player-data-types";
+import { PlayerDataSchema } from "shared/schemas/player-data";
+import { DeepCloneTable } from "shared/utilities/object-utilities";
+import { DeepWritable } from "types/utility";
 
 export interface OnDataReplicated {
 	OnDataReplicated(): void;
@@ -23,8 +26,8 @@ export interface PlayerAtoms {
 })
 export class PlayerController implements OnInit, OnStart {
 	private atoms: SyncerType = {
-		playerData: atom<PlayerData>(undefined!),
-		gameData: atom<GameData>(undefined!),
+		playerData: atom<PlayerData>(DeepCloneTable(PlayerDataSchema)),
+		gameData: atom<GameData>(DeepCloneTable(GameDataSchema)),
 	};
 	private syncer = sync.client<SyncerType>({
 		atoms: this.atoms,
