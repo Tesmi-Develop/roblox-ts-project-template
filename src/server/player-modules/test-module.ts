@@ -1,13 +1,12 @@
 import { PlayerTransaction } from "server/classes/player-transaction";
-import { PlayerComponent } from "server/components/player-component";
-import { InjectAtom } from "server/components/player-component/inject-atom";
+import { PlayerAtom, PlayerComponent } from "server/components/player-component";
 import {
 	PlayerModuleDecorator,
 	OnSendData,
 	OnStartModule,
 	OnStopModule,
 } from "shared/decorators/constructor/player-module-decorator";
-import { InjectType } from "shared/decorators/field/Inject-player-module";
+import { InjectType } from "shared/decorators/field/Inject-type";
 import { PlayerDynamicData, PlayerSave } from "shared/schemas/player-data-types";
 import { MutateAtom } from "shared/utilities/function-utilities";
 
@@ -16,7 +15,8 @@ export class TestModule implements OnSendData, OnStartModule, OnStopModule {
 	@InjectType
 	private playerComponent!: PlayerComponent;
 
-	private atom = InjectAtom("Save.Statistics");
+	@InjectType
+	private atom!: PlayerAtom;
 
 	public OnSendData(saveData: PlayerSave, dynamicData: PlayerDynamicData) {
 		print("TestModule: OnSendData", saveData, dynamicData);
@@ -29,21 +29,18 @@ export class TestModule implements OnSendData, OnStartModule, OnStopModule {
 	}
 
 	public OnStartModule() {
-		print(this.atom());
-
 		this.playerComponent.Subscribe((state) => {
 			print(state);
 		});
 
 		this.Increment(5);
 
-		PlayerTransaction.Create<[TestModule]>([
+		PlayerTransaction.Create([
 			{
 				playerComponent: this.playerComponent,
-				onTransact: async () => {
+				onTransact: () => {
 					task.wait(5);
 					print(this.Increment(15));
-					print("Completed transaction");
 				},
 			},
 		]).Transact();

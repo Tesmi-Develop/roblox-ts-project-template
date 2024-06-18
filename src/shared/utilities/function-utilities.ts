@@ -9,7 +9,8 @@ import { CharacterRigR15, validateR15 } from "@rbxts/character-promise";
 import { Atom } from "@rbxts/charm";
 import { None, produce } from "@rbxts/immut";
 import { Draft } from "@rbxts/immut/src/types-external";
-import type { PlayerModuleAtom } from "server/components/player-component/inject-atom";
+import type { PlayerAtom } from "server/components/player-component";
+import { PlayerData } from "shared/schemas/player-data-types";
 
 export const FindFirstAncestorOfClassWithPredict = <T extends keyof Instances>(
 	instance: Instance,
@@ -556,7 +557,7 @@ export const GetCurrentThread = <A extends unknown[]>() => {
 	};
 };
 
-type InferAtomState<T> = T extends Atom<infer S> ? S : T extends PlayerModuleAtom<infer S> ? S : never;
+type InferAtomState<T> = T extends Atom<infer S> ? S : T extends PlayerAtom ? PlayerData : never;
 
 export const MutateAtom = <T, C>(
 	atom: C,

@@ -4,8 +4,8 @@ export const INJECT_TYPE_KEY = "Inject-type";
 
 /** @metadata flamework:type */
 export const InjectType = (target: object, propertyName: string) => {
-	const moduleSpecifier = Reflect.getMetadata<string>(target, "flamework:type", propertyName);
-	assert(moduleSpecifier, "Injected type not found");
+	const typeSpecifier = Reflect.getMetadata<string>(target, "flamework:type", propertyName);
+	assert(typeSpecifier, "Injected type not found");
 
 	let map = Reflect.getMetadata<Map<string, string>>(target, INJECT_TYPE_KEY);
 
@@ -14,5 +14,5 @@ export const InjectType = (target: object, propertyName: string) => {
 		Reflect.defineMetadata(target, INJECT_TYPE_KEY, map);
 	}
 
-	map.set(propertyName, moduleSpecifier);
+	map.set(propertyName, typeSpecifier);
 };

@@ -1,49 +1,59 @@
-import { Modding } from "@flamework/core";
 import { ITransactEntity, Transaction } from "@rbxts/transact";
 import { IPlayerInteraction, PlayerComponent } from "server/components/player-component";
-import { PlayerData } from "shared/schemas/player-data-types";
+import { logAssert } from "shared/utilities/function-utilities";
+
+const COUNT_REPEATS = 5;
 
 export class PlayerTransaction implements ITransactEntity {
-	private playerInteraction!: IPlayerInteraction;
-	private originalData!: PlayerData;
+	private static players = new Set<PlayerComponent>();
+	private playerInteraction?: IPlayerInteraction;
 
-	/** @metadata macro */
-	public static Create<T extends object[]>(
-		players: { playerComponent: PlayerComponent; onTransact: () => Promise<void> }[],
-		modules?: Modding.Many<{ [k in keyof T]: Modding.Generic<T[k], "id"> }>,
-	) {
+	public static Create(players: { playerComponent: PlayerComponent; onTransact: () => void }[]) {
 		return new Transaction(
-			players.map(
-				({ playerComponent, onTransact }) => new PlayerTransaction(playerComponent, onTransact, modules ?? []),
-			),
+			players.map(({ playerComponent, onTransact }) => new PlayerTransaction(playerComponent, onTransact)),
+			{
+				TransactionRepeats: 1,
+				RollbackRepeats: 1,
+			},
 		);
 	}
 
-	constructor(
-		private playerComponent: PlayerComponent,
-		private onTransact: () => Promise<void>,
-		private allowenedModules: string[],
-	) {}
+	constructor(private playerComponent: PlayerComponent, private onTransact: () => void) {}
 
 	public Init() {
+		assert(!PlayerTransaction.players.has(this.playerComponent), "Player already in transaction");
 		assert(!this.playerComponent.GetLocked(), "Player is locked");
-		this.originalData = this.playerComponent.GetData();
-		this.playerInteraction = this.playerComponent.LockComponent(this.allowenedModules);
+
+		PlayerTransaction.players.add(this.playerComponent);
+		this.playerComponent.DoCommit();
 		this.playerComponent.Keep();
 	}
 
 	public async Transact() {
-		await this.onTransact();
-		await this.playerInteraction.SaveProfile();
+		const [success] = pcall(() => this.onTransact());
+		logAssert(success, "[PlayerTransaction]: onTransact failed");
+		this.playerInteraction = this.playerComponent.LockComponent();
+
+		return {
+			repeats: COUNT_REPEATS,
+			callback: () => this.playerInteraction!.SaveProfile(),
+		};
 	}
 
 	public async Rollback() {
-		this.playerInteraction.SetData(this.originalData);
-		await this.playerInteraction.SaveProfile();
+		this.playerComponent.RollbackToLastCommit();
+
+		return (
+			this.playerInteraction && {
+				repeats: COUNT_REPEATS,
+				callback: () => this.playerInteraction!.SaveProfile(),
+			}
+		);
 	}
 
 	public End() {
-		this.playerInteraction.UnlockComponent();
+		this.playerInteraction?.UnlockComponent();
 		this.playerComponent.Release();
+		PlayerTransaction.players.delete(this.playerComponent);
 	}
 }

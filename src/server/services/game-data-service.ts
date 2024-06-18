@@ -1,8 +1,5 @@
-import { Service, OnStart } from "@flamework/core";
-import { atom, sync } from "@rbxts/charm";
-import { PlayerComponent } from "server/components/player-component";
-import { Events } from "server/network";
-import { DispatchSerializer } from "shared/network";
+import { Service } from "@flamework/core";
+import { atom } from "@rbxts/charm";
 import { GameDataSchema } from "shared/schemas/game-data";
 import { DeepCloneTable } from "shared/utilities/object-utilities";
 

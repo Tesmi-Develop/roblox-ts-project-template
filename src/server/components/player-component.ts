@@ -24,14 +24,13 @@ import { Players } from "@rbxts/services";
 import { Constructor } from "@flamework/core/out/utility";
 import { Document } from "@rbxts/lapis";
 import { DataStoreWrapperService } from "server/services/data-store-service";
-import { ClearInjectAtomContext, GetInjectAtomContext, INJECT_ATOM_KEY, PlayerModuleAtom } from "./inject-atom";
-import { Atom, atom, ServerSyncer, subscribe, sync } from "@rbxts/charm";
+import { Atom, atom, Molecule, ServerSyncer, subscribe, sync } from "@rbxts/charm";
 import { setInterval } from "@rbxts/set-timeout";
 import { DispatchSerializer, SyncerType } from "shared/network";
-import { getIdFromSpecifier } from "@flamework/components/out/utility";
 import { GameDataService } from "server/services/game-data-service";
-import { INJECT_TYPE_KEY } from "shared/decorators/field/Inject-player-module";
 import { PlayerData, PlayerSave } from "shared/schemas/player-data-types";
+import { INJECT_TYPE_KEY } from "shared/decorators/field/Inject-type";
+import { produce } from "@rbxts/immut";
 
 const HYDRATE_RATE = -1;
 const KICK_IF_PROFILE_NOT_LOADED = false;
@@ -41,8 +40,17 @@ type Status = "Initializing" | "WaitForStarting" | "Started" | "Destroyed";
 
 export interface IPlayerInteraction {
 	SaveProfile: () => Promise<void>;
-	SetData: (data: PlayerData) => void;
 	UnlockComponent: () => void;
+}
+
+export interface PlayerAtom extends Molecule<PlayerData> {
+	(state: PlayerData | ((prev: PlayerData) => PlayerData)): boolean;
+
+	Subscribe(callback: (state: PlayerData) => void): () => void;
+	Subscribe<Selector>(
+		selector: (state: PlayerData) => Selector,
+		callback: (state: Selector, previousState: Selector) => void,
+	): () => void;
 }
 
 @Component({})
@@ -66,13 +74,12 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 	private status: Status = "Initializing";
 	private statusSignals = new Map<Status, Signal<() => void>>();
 	private atom!: Atom<PlayerData>;
+	private playerAtom!: PlayerAtom;
 	private syncer!: ServerSyncer<SyncerType>;
 	private profile?: Document<PlayerSave>;
 	private isKeepMode = false;
 	private isLocked = false;
-	private allowedModules?: Set<string>;
-	private usedTopics = new Map<string, object>();
-	private moduleStatus = new Map<object, boolean>();
+	private lastCommittedData?: PlayerData;
 
 	public static onAdded(callback: (component: PlayerComponent, player: Player) => void) {
 		return Dependency<Components>().onComponentAdded<PlayerComponent>(async (component, player) => {
@@ -88,29 +95,29 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 	public async onStart() {
 		const dynamicData = DeepCloneTable(PlayerDataSchema.Dynamic);
 
-		// Step 1: Initilize all modules
-		this.initModules();
-
-		// Step 2: Load profile data
+		// Step 1: Load profile data
 		const [sucess, profileData] = this.initProfile().await();
 		if (!sucess) return;
 
-		const playerData = { Save: profileData, Dynamic: dynamicData };
+		// Step 2: Initilize playerAtom
+		this.initAtoms({ Save: profileData, Dynamic: dynamicData });
 
-		// Step 3: Invoke onSendData
-		this.invokeOnSendDataEvent(playerData);
+		// Step 3: Initilize all modules
+		this.initModules();
 
-		// Step 4: Initialize syncer
-		this.initSyncer(playerData);
+		// Step 4: Invoke onSendData
+		this.invokeOnSendDataEvent();
 
-		// Step 5: Ready to start
+		// Step 5: Initialize syncer
+		this.initSyncer();
+
+		// Step 6: Ready to start
 		this.setStatus("WaitForStarting");
 
-		// Step 5: Invoke onStartModule
+		// Step 7: Invoke onStartModule
 		this.WaitForStatus("Started").then(() => {
 			this.orderedModules.forEach(([module]) => {
 				if (!Flamework.implements<OnStartModule>(module)) return;
-				if (!this.moduleStatus.get(module)) return;
 
 				task.spawn(() => {
 					try {
@@ -125,9 +132,8 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 
 	public ResetData() {
 		const data = DeepCloneTable(PlayerDataSchema);
-		this.invokeOnSendDataEvent(data);
-
 		this.atom(data);
+		this.invokeOnSendDataEvent();
 	}
 
 	public Keep() {
@@ -143,19 +149,23 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 		return this.isLocked;
 	}
 
-	public LockComponent(allowenedModules: string[] = []): IPlayerInteraction {
+	public LockComponent(): IPlayerInteraction {
 		assert(!this.isLocked, "Component is already locked");
 		this.isLocked = true;
-		this.allowedModules = new Set(allowenedModules);
 
-		return {
-			SaveProfile: () => this.saveProfile(),
-			SetData: (data: PlayerData) => this.setData(data),
+		const interaction = {
+			isDestroyed: false,
+			SaveProfile: async () => {
+				assert(!interaction.isDestroyed, "Interaction is destroyed");
+				return await this.SaveProfile();
+			},
 			UnlockComponent: () => {
 				this.isLocked = false;
-				this.allowedModules = undefined;
+				interaction.isDestroyed = true;
 			},
 		};
+
+		return interaction;
 	}
 
 	/** @metadata macro */
@@ -230,9 +240,7 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 	}
 
 	public async SaveProfile() {
-		if (!this.IsStatus("Initializing")) return;
-		if (!this.isLocked) return;
-
+		this.validateInitialized();
 		return await this.saveProfile();
 	}
 
@@ -243,9 +251,26 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 		return true;
 	}
 
+	public DoCommit() {
+		if (!this.IsStatus("Started")) return false;
+		this.lastCommittedData = this.atom();
+
+		return true;
+	}
+
+	public RollbackToLastCommit() {
+		if (!this.IsStatus("Started")) return false;
+		return (this.lastCommittedData && this.setData(this.lastCommittedData)) ?? false;
+	}
+
 	private saveProfile() {
 		if (!this.profile) return new Promise<void>((resolve) => resolve(undefined));
 		return this.profile?.save();
+	}
+
+	private initAtoms(playerData: PlayerData) {
+		this.atom = atom(playerData);
+		this.playerAtom = this.createPlayerAtom();
 	}
 
 	private setData(data: PlayerData) {
@@ -267,9 +292,7 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 		logAssert(!this.IsStatus("Initializing"), "PlayerComponent must be initialized");
 	}
 
-	private initSyncer(playerData: PlayerData) {
-		this.atom = atom(playerData);
-
+	private initSyncer() {
 		this.syncer = sync.server({ atoms: { playerData: this.atom, gameData: this.gameDataService.GetAtom() } });
 
 		if (HYDRATE_RATE > 0) {
@@ -289,20 +312,22 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 		);
 
 		print("Atoms initialized");
-		this.atom(playerData);
 	}
 
-	private invokeOnSendDataEvent(data: PlayerData) {
-		this.orderedModules.forEach(([module]) => {
-			if (!Flamework.implements<OnSendData>(module)) return;
-			if (!this.moduleStatus.get(module)) return;
+	private invokeOnSendDataEvent() {
+		this.atom(
+			produce(this.atom(), (draft) => {
+				this.orderedModules.forEach(([module]) => {
+					if (!Flamework.implements<OnSendData>(module)) return;
 
-			try {
-				module.OnSendData(data.Save, data.Dynamic);
-			} catch (error) {
-				warn(`[PlayerComponent: ${this.instance.Name}] ${error}`);
-			}
-		});
+					try {
+						module.OnSendData(draft.Save, draft.Dynamic);
+					} catch (error) {
+						warn(`[PlayerComponent: ${this.instance.Name}] ${error}`);
+					}
+				});
+			}),
+		);
 	}
 
 	private async releaseProfile() {
@@ -349,90 +374,48 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 					instance[property as never] = this as never;
 					return;
 				}
+
+				if (moduleSpecifier === Flamework.id<PlayerAtom>()) {
+					instance[property as never] = this.playerAtom as never;
+					return;
+				}
+
 				instance[property as never] = this.GetModule(moduleSpecifier as never);
 			});
 		}
 	}
 
-	private mergeStates(state: PlayerData, slice: Partial<PlayerData>) {
-		const newState = { ...state };
+	private createPlayerAtom() {
+		const janitor = this.janitor;
+		const atom = this.atom;
 
-		for (const [key, value] of pairs(slice)) {
-			newState[key] = { ...state[key], ...value } as never;
-		}
+		const moduleAtom = {} as PlayerAtom;
+		const mt = {
+			__call: (_, ...args: unknown[]) => {
+				if (args.size() === 0) return atom();
+				if (this.isLocked) return false;
 
-		return newState;
-	}
+				atom(args[0] as never);
+				return true;
+			},
 
-	private createPlayerModuleAtom(atom: Atom<{}>, module: Constructor) {
-		const moduleSpecifier = getIdFromSpecifier(module)!;
+			Subscribe: function (this, ...args: unknown[]) {
+				if (args.size() === 1) {
+					return subscribe(atom, args[0] as never);
+				}
 
-		return ((...args: unknown[]) => {
-			if (args.size() === 0) return atom();
-			if (this.isLocked && !this.allowedModules!.has(moduleSpecifier)) return false;
+				const [selector, listener] = args as [
+					(state: unknown) => unknown,
+					(state: unknown, previousState: unknown) => void,
+				];
+				const cleanup = subscribe(() => selector(atom()), listener as never);
+				janitor.Add(cleanup);
 
-			const newState = this.mergeStates(this.GetData(), args[0] as never);
-			atom(args[0] as never);
+				return cleanup;
+			},
+		} as LuaMetatable<typeof moduleAtom>;
 
-			return this.setData(newState);
-		}) as PlayerModuleAtom<unknown>;
-	}
-
-	private createAtom(instance: object) {
-		const keys = GetInjectAtomContext();
-		if (!keys) return true;
-		let flag = true;
-
-		keys.forEach((key) => {
-			if (!flag) return;
-
-			if (this.usedTopics.has(key)) {
-				const originalInstance = this.usedTopics.get(key)!;
-				warn(
-					`[PlayerComponent] Player modules [${getmetatable(instance)}, ${getmetatable(
-						originalInstance,
-					)}] refer to the same part of the date: "${key}".`,
-				);
-				flag = false;
-				return;
-			}
-			this.usedTopics.set(key, instance);
-		});
-
-		if (!flag) {
-			ClearInjectAtomContext();
-			return false;
-		}
-		const newAtom = atom({});
-
-		this.WaitForStatus("WaitForStarting").then(() => {
-			const currentData = this.GetData();
-			const state = {};
-
-			keys.forEach((strkKey) => {
-				const [key, property] = strkKey.split(".");
-				const data = currentData[key as never] as object;
-				const topic = data[property as never];
-
-				state[key as never] = {
-					[property as never]: typeIs(topic, "table") ? DeepCloneTable(topic) : topic,
-				} as never;
-			});
-
-			newAtom(state);
-		});
-
-		for (const [key] of pairs(instance)) {
-			if (instance[key as never] !== INJECT_ATOM_KEY) continue;
-			instance[key as never] = this.createPlayerModuleAtom(
-				newAtom,
-				getmetatable(instance) as Constructor,
-			) as never;
-		}
-
-		ClearInjectAtomContext();
-
-		return true;
+		return setmetatable(moduleAtom, mt);
 	}
 
 	private initModules() {
@@ -452,8 +435,6 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 		// Step 3 - Call constructors
 		moduleConstructors.forEach((constructor, instance) => {
 			constructor();
-			const success = this.createAtom(instance);
-			this.moduleStatus.set(instance, success);
 		});
 
 		this.modules.forEach((module, key) => {
@@ -467,6 +448,8 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 	}
 
 	public destroy() {
+		super.destroy();
+
 		this.orderedModules.forEach(([module]) => {
 			if (Flamework.implements<OnStopModule>(module)) {
 				const [success, output] = pcall(() => module.OnStopModule());
@@ -487,7 +470,6 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 		this.statusSignals.clear();
 
 		this.releaseProfile();
-		super.destroy();
 		this.janitor.Destroy();
 		this.setStatus("Destroyed");
 	}

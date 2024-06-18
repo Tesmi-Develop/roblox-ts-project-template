@@ -54,7 +54,7 @@
     "@rbxts/shared-classes-reflex": "^2.1.4",
     "@rbxts/shared-components-flamework": "^2.1.0",
     "@rbxts/t": "^3.1.1",
-    "@rbxts/transact": "^1.0.1",
+    "@rbxts/transact": "^1.0.4",
     "@rbxts/ui-labs": "^2.0.2",
     "rbxts-transformer-keys": "^0.5.0-rc.2",
     "ts-arithmetic": "^0.1.1"
