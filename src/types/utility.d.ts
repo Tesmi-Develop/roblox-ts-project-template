@@ -1,5 +1,4 @@
-import { BindingApi } from "@rbxts/pretty-react-hooks";
-import { Binding, useBinding } from "@rbxts/react";
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import type { PATCH_ACTION_REMOVE } from "shared/utilities/constants";
 import { Add, Eq } from "ts-arithmetic";
 
@@ -30,3 +29,13 @@ export type DeepReadonly<T> = T extends object ? { readonly [K in keyof T]: Deep
  * Makes a type deeply mutable.
  */
 export type DeepWritable<T> = T extends object ? { -readonly [K in keyof T]: DeepWritable<T[K]> } : T;
+
+/**
+ * A selector function that can be used to select a subset of the state.
+ * @param state The state.
+ * @param params Optional parameters.
+ * @return The selected part of the state.
+ */
+export type Selector<State = any, Result = unknown, Params extends never | any[] = any[]> = [Params] extends [never]
+	? (state: State) => Result
+	: (state: State, ...params: Params) => Result;

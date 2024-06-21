@@ -7,9 +7,8 @@ import {
 	OnStopModule,
 } from "shared/decorators/constructor/player-module-decorator";
 import { DeepCloneTable, GetIdentifier } from "shared/utilities/object-utilities";
-import { Selector } from "@rbxts/reflex";
 import { Inject } from "shared/decorators/field/inject";
-import { VoidCallback } from "types/utility";
+import { Selector, VoidCallback } from "types/utility";
 import { Janitor } from "@rbxts/janitor";
 import Signal from "@rbxts/rbx-better-signal";
 import {
@@ -31,6 +30,7 @@ import { GameDataService } from "server/services/game-data-service";
 import { PlayerData, PlayerSave } from "shared/schemas/player-data-types";
 import { INJECT_TYPE_KEY } from "shared/decorators/field/Inject-type";
 import { produce } from "@rbxts/immut";
+import { PlayerService } from "server/services/player-service";
 
 const HYDRATE_RATE = -1;
 const KICK_IF_PROFILE_NOT_LOADED = false;
@@ -65,7 +65,7 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 	private components!: Components;
 
 	@Inject
-	private gameDataService!: GameDataService;
+	private playerService!: PlayerService;
 
 	private readonly janitor = new Janitor();
 	private destroyConnections: (() => void)[] = [];
@@ -75,7 +75,6 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 	private statusSignals = new Map<Status, Signal<() => void>>();
 	private atom!: Atom<PlayerData>;
 	private playerAtom!: PlayerAtom;
-	private syncer!: ServerSyncer<SyncerType>;
 	private profile?: Document<PlayerSave>;
 	private isKeepMode = false;
 	private isLocked = false;
@@ -223,7 +222,7 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 	public StartReplication() {
 		if (!this.IsStatus("WaitForStarting")) return;
 
-		this.syncer.hydrate(this.instance);
+		this.hydrate();
 		this.setStatus("Started");
 	}
 
@@ -292,26 +291,29 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 		logAssert(!this.IsStatus("Initializing"), "PlayerComponent must be initialized");
 	}
 
-	private initSyncer() {
-		this.syncer = sync.server({ atoms: { playerData: this.atom, gameData: this.gameDataService.GetAtom() } });
+	private hydrate() {
+		this.doDispatch(this.playerService.GenerateHydratePayload(this.atom) as never);
+	}
 
+	private doDispatch(payload: { type: "init" | "patch"; data: Record<keyof SyncerType, unknown> }) {
+		Events.Dispatch.fire(this.instance, DispatchSerializer.serialize(payload));
+	}
+
+	private initSyncer() {
 		if (HYDRATE_RATE > 0) {
 			this.janitor.Add(
 				setInterval(() => {
 					if (!this.IsStatus("Started")) return;
-					this.syncer.hydrate(this.instance);
+					this.hydrate();
 				}, HYDRATE_RATE),
 			);
 		}
 
 		this.janitor.Add(
-			this.syncer.connect((player, payload) => {
-				if (player !== this.instance) return;
-				Events.Dispatch.fire(player, DispatchSerializer.serialize(payload as never));
+			this.playerService.ConnectPlayerSync(this.atom, (payload) => {
+				this.doDispatch(payload);
 			}),
 		);
-
-		print("Atoms initialized");
 	}
 
 	private invokeOnSendDataEvent() {

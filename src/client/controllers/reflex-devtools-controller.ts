@@ -8,7 +8,7 @@ const enabled = ReplicatedStorage.FindFirstChild("REFLEX_DEVTOOLS_ENABLED") as B
 const IsEnableReflexDevTools = () => IS_DEV && event && enabled && enabled.Value;
 
 @Controller({})
-export class ReflexDevToolController {
+export class ReflexDevToolsController {
 	public DisplayData(name: string, data: unknown) {
 		if (IsEnableReflexDevTools()) {
 			event.FireServer({ name: name, args: [], state: data });

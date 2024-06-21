@@ -1,11 +1,14 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { Components } from "@flamework/components";
 import { Service, OnStart, Flamework, Modding } from "@flamework/core";
-import { Players, StarterGui } from "@rbxts/services";
+import { Atom } from "@rbxts/charm";
+import { AnalyticsService, Players, StarterGui } from "@rbxts/services";
+import { SharedComponentHandler } from "@rbxts/shared-components-flamework";
 import { PlayerComponent } from "server/components/player-component";
 import { Events, Functions } from "server/network";
 import { ActionConstructors } from "shared/decorators/constructor/action-decorator";
 import { Inject } from "shared/decorators/field/inject";
-import { ActionSerializer } from "shared/network";
+import { ActionSerializer, SyncerType } from "shared/network";
 import { FailedProcessAction } from "shared/utilities/function-utilities";
 import {
 	ForeachInitedPlayers,
@@ -15,6 +18,9 @@ import {
 } from "shared/utilities/player";
 import { IAction } from "types/IAction";
 import { OnPlayerJoined, OnPlayerLeaved } from "types/player/player-events";
+import { GameDataService } from "./game-data-service";
+import { AtomObserver } from "@rbxts/observer-charm";
+import("@rbxts/shared-components-flamework");
 
 const validateActionData = Flamework.createGuard<IAction>();
 
@@ -23,7 +29,15 @@ export class PlayerService implements OnStart {
 	@Inject
 	private components!: Components;
 
+	@Inject
+	private sharedComponentHandler!: SharedComponentHandler;
+	private observer!: AtomObserver;
+
+	@Inject
+	private gameDataService!: GameDataService;
+
 	public onStart() {
+		this.observer = this.sharedComponentHandler.GetAtomObserver();
 		this.clearStarterGUI();
 
 		Players.PlayerAdded.Connect((player) => {
@@ -37,6 +51,42 @@ export class PlayerService implements OnStart {
 		this.connectNetworkFunctions();
 		this.handlePlayersJoined();
 		this.handlePlayersLeaved();
+	}
+
+	public ConnectPlayerSync(
+		playerAtom: Atom<any>,
+		callback: (payload: { type: "init" | "patch"; data: Record<keyof SyncerType, unknown> }) => void,
+	) {
+		const connection1 = this.observer.Connect(playerAtom as never, (payload) => {
+			const patch = payload.data;
+			payload.data = {
+				playerData: patch,
+			};
+			callback(payload as never);
+		});
+
+		const connection2 = this.observer.Connect(this.gameDataService.GetAtom() as never, (payload) => {
+			const patch = payload.data;
+			payload.data = {
+				gameData: patch,
+			};
+			callback(payload as never);
+		});
+
+		return () => {
+			connection1();
+			connection2();
+		};
+	}
+
+	public GenerateHydratePayload(playerAtom: Atom<any>) {
+		return {
+			type: "init",
+			data: {
+				playerData: playerAtom(),
+				gameData: this.gameDataService.GetAtom()(),
+			},
+		};
 	}
 
 	private clearStarterGUI() {
