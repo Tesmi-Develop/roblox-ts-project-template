@@ -2,7 +2,7 @@ import { Controller, OnInit, OnStart, Modding } from "@flamework/core";
 import { Atom, atom, subscribe, sync, SyncPayload } from "@rbxts/charm";
 import { SharedClasses } from "@rbxts/shared-classes-reflex";
 import { Events } from "client/network";
-import { DispatchSerializer, SyncerType } from "shared/network";
+import { DispatchSerializer, PlayerAtoms } from "shared/network";
 import { Inject } from "shared/decorators/field/inject";
 import { GameData, GameDataSchema } from "shared/schemas/game-data";
 import { GetCurrentThread } from "shared/utilities/function-utilities";
@@ -15,11 +15,6 @@ export interface OnDataReplicated {
 	OnDataReplicated(): void;
 }
 
-export interface PlayerAtoms {
-	playerData: Atom<PlayerData>;
-	gameData: Atom<GameData>;
-}
-
 interface ClientPlayerData {
 	playerData: PlayerData;
 	gameData: GameData;
@@ -29,11 +24,11 @@ interface ClientPlayerData {
 	loadOrder: 0,
 })
 export class PlayerController implements OnInit, OnStart {
-	private atoms: SyncerType = {
+	private atoms: PlayerAtoms = {
 		playerData: atom(DeepCloneTable(PlayerDataSchema)),
 		gameData: atom(DeepCloneTable(GameDataSchema)),
 	};
-	private syncer = sync.client<SyncerType>({
+	private syncer = sync.client<PlayerAtoms>({
 		atoms: this.atoms,
 	});
 	private isGotData = false;
@@ -149,7 +144,7 @@ export class PlayerController implements OnInit, OnStart {
 	private dispatch(payloadBuffer: { buffer: buffer; blobs: defined[] }) {
 		const payload = DispatchSerializer.deserialize(payloadBuffer.buffer, payloadBuffer.blobs) as SyncPayload<
 			{
-				[K in keyof SyncerType]: SyncerType[K] extends Atom<infer R> ? R : never;
+				[K in keyof PlayerAtoms]: PlayerAtoms[K] extends Atom<infer R> ? R : never;
 			}
 		>;
 

@@ -23,12 +23,20 @@ export type VoidCallback = () => void;
 /**
  * Makes a type deeply immutable.
  */
-export type DeepReadonly<T> = T extends object ? { readonly [K in keyof T]: DeepReadonly<T[K]> } : T;
+export type DeepReadonly<T> = T extends Map<infer K, infer V>
+	? ReadonlyMap<K, V>
+	: T extends object
+	? { readonly [K in keyof T]: DeepWritable<T[K]> }
+	: T;
 
 /**
  * Makes a type deeply mutable.
  */
-export type DeepWritable<T> = T extends object ? { -readonly [K in keyof T]: DeepWritable<T[K]> } : T;
+export type DeepWritable<T> = T extends Map<infer K, infer V>
+	? Map<K, V>
+	: T extends object
+	? { -readonly [K in keyof T]: DeepWritable<T[K]> }
+	: T;
 
 /**
  * A selector function that can be used to select a subset of the state.

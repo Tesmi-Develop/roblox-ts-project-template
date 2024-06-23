@@ -23,9 +23,9 @@ import { Players } from "@rbxts/services";
 import { Constructor } from "@flamework/core/out/utility";
 import { Document } from "@rbxts/lapis";
 import { DataStoreWrapperService } from "server/services/data-store-service";
-import { Atom, atom, Molecule, ServerSyncer, subscribe, sync } from "@rbxts/charm";
+import { Atom, atom, Molecule, subscribe } from "@rbxts/charm";
 import { setInterval } from "@rbxts/set-timeout";
-import { DispatchSerializer, SyncerType } from "shared/network";
+import { DispatchSerializer, PlayerAtoms } from "shared/network";
 import { GameDataService } from "server/services/game-data-service";
 import { PlayerData, PlayerSave } from "shared/schemas/player-data-types";
 import { INJECT_TYPE_KEY } from "shared/decorators/field/Inject-type";
@@ -295,7 +295,7 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 		this.doDispatch(this.playerService.GenerateHydratePayload(this.atom) as never);
 	}
 
-	private doDispatch(payload: { type: "init" | "patch"; data: Record<keyof SyncerType, unknown> }) {
+	private doDispatch(payload: { type: "init" | "patch"; data: Record<keyof PlayerAtoms, unknown> }) {
 		Events.Dispatch.fire(this.instance, DispatchSerializer.serialize(payload));
 	}
 

@@ -8,7 +8,7 @@ import { PlayerComponent } from "server/components/player-component";
 import { Events, Functions } from "server/network";
 import { ActionConstructors } from "shared/decorators/constructor/action-decorator";
 import { Inject } from "shared/decorators/field/inject";
-import { ActionSerializer, SyncerType } from "shared/network";
+import { ActionSerializer, PlayerAtoms } from "shared/network";
 import { FailedProcessAction } from "shared/utilities/function-utilities";
 import {
 	ForeachInitedPlayers,
@@ -55,7 +55,7 @@ export class PlayerService implements OnStart {
 
 	public ConnectPlayerSync(
 		playerAtom: Atom<any>,
-		callback: (payload: { type: "init" | "patch"; data: Record<keyof SyncerType, unknown> }) => void,
+		callback: (payload: { type: "init" | "patch"; data: Record<keyof PlayerAtoms, unknown> }) => void,
 	) {
 		const connection1 = this.observer.Connect(playerAtom as never, (payload) => {
 			const patch = payload.data;

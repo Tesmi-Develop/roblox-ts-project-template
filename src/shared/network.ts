@@ -26,10 +26,10 @@ export const ClientEvents = GlobalEvents.createClient({});
 export const ClientFunctions = GlobalFunctions.createClient({});
 
 export const DispatchSerializer =
-	createBinarySerializer<{ type: "init" | "patch"; data: Record<keyof SyncerType, unknown> }>();
+	createBinarySerializer<{ type: "init" | "patch"; data: Record<keyof PlayerAtoms, unknown> }>();
 export const ActionSerializer = createBinarySerializer<Omit<IAction, "Data"> & { Data: unknown }>();
 
-export type SyncerType = {
+export type PlayerAtoms = {
 	playerData: Atom<PlayerData>;
 	gameData: Atom<GameData>;
 };
