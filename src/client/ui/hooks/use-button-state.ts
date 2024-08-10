@@ -12,6 +12,8 @@ export interface ButtonEvents {
 	onMouseLeave: () => void;
 }
 
+export type ButtonStateApi = [press: boolean, hover: boolean, events: ButtonEvents];
+
 /**
  * Returns the current state of a button based on the events returned.
  * @param enabled Whether the button is enabled or not.

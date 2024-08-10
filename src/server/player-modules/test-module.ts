@@ -1,54 +1,30 @@
-import { PlayerTransaction } from "server/classes/player-transaction";
-import { PlayerAtom, PlayerComponent } from "server/components/player-component";
+import { Draft } from "@rbxts/immut/src/types-external";
+import { Logger } from "@rbxts/log";
+import { PlayerAtom } from "server/components/player-component";
 import {
-	PlayerModuleDecorator,
+	OnDestroyModule,
 	OnSendData,
 	OnStartModule,
-	OnStopModule,
+	PlayerModule,
 } from "shared/decorators/constructor/player-module-decorator";
 import { InjectType } from "shared/decorators/field/Inject-type";
-import { PlayerDynamicData, PlayerSave } from "shared/schemas/player-data-types";
-import { MutateAtom } from "shared/utilities/function-utilities";
+import { playerData, PlayerData } from "shared/schemas/player-data-types";
 
-@PlayerModuleDecorator()
-export class TestModule implements OnSendData, OnStartModule, OnStopModule {
+@PlayerModule()
+export class TestModule implements OnSendData, OnStartModule, OnDestroyModule {
 	@InjectType
-	private playerComponent!: PlayerComponent;
+	private logger!: Logger;
 
 	@InjectType
 	private atom!: PlayerAtom;
 
-	public OnSendData(saveData: PlayerSave, dynamicData: PlayerDynamicData) {
-		print("TestModule: OnSendData", saveData, dynamicData);
+	public OnSendData(data: Draft<playerData>, original: PlayerData) {
+		this.logger.Debug("TestModule: OnSendData", data, original);
 	}
 
-	public Increment(amount: number) {
-		return MutateAtom(this.atom, (draft) => {
-			draft.Save.Statistics.Money += amount;
-		});
-	}
+	public OnStartModule() {}
 
-	public OnStartModule() {
-		this.playerComponent.Subscribe((state) => {
-			print(state);
-		});
-
-		this.Increment(5);
-
-		PlayerTransaction.Create([
-			{
-				playerComponent: this.playerComponent,
-				onTransact: () => {
-					task.wait(5);
-					print(this.Increment(15));
-				},
-			},
-		]).Transact();
-
-		print("TestModule: OnStartModule", this.playerComponent);
-	}
-
-	public OnStopModule() {
-		print("TestModule: OnStopModule");
+	public OnDestroyModule() {
+		this.logger.Debug("TestModule: OnStopModule");
 	}
 }

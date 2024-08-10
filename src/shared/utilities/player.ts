@@ -3,6 +3,8 @@ import { Dependency } from "@flamework/core/out/flamework";
 import { CharacterRigR15, promiseR15 } from "@rbxts/character-promise";
 import { Players } from "@rbxts/services";
 import type { PlayerComponent } from "server/components/player-component";
+import { IS_SERVER, IS_STUDIO } from "./constants";
+import type { PlayerService } from "server/services/player-service";
 
 export async function PromisePlayerDisconnected(player: Player) {
 	assert(player.IsDescendantOf(Players), "Player must be a descendant of Players");
@@ -29,14 +31,15 @@ export const IsInitedPlayer = (player: Player) => {
 };
 
 /** @server */
-export const ForeachInitedPlayers = (callback: (player: PlayerComponent) => void) => {
-	Players.GetPlayers().forEach((player) => {
-		const playerComponent = GetPlayerComponent(player);
-		if (!playerComponent) return;
-		if (!playerComponent.IsStatus("Started")) return;
+export const ForeachStartedPlayers = (callback: (player: PlayerComponent) => void) => {
+	assert(IS_SERVER || IS_STUDIO, "ForeachStartedPlayers must be called on the server");
+	Dependency<PlayerService>()
+		.GetPlayers()
+		.forEach((player) => {
+			if (!player.IsStatus("Started")) return;
 
-		callback(playerComponent);
-	});
+			callback(player);
+		});
 };
 
 export const PromiseCharacterAdded = async (player: Player) => {

@@ -8,6 +8,9 @@
 		"$className": "DataModel",
 		"ServerScriptService": {
 			"$className": "ServerScriptService",
+			"Commands": {
+				"$path": "out/commands"
+			},
 			"TS": {
 				"$path": "out/server"
 			}

@@ -1,26 +1,36 @@
-import { useEventListener } from "@rbxts/pretty-react-hooks";
+import { useEventListener, useLatest, useMountEffect } from "@rbxts/pretty-react-hooks";
 import { Motion, MotionGoal, createMotion } from "@rbxts/ripple";
 import { Binding, useMemo, useBinding } from "@rbxts/react";
-import { RunService } from "@rbxts/services";
 
-export function useMotion(initialValue: number): LuaTuple<[Binding<number>, Motion]>;
+export function useMotion(
+	initialValue: number,
+	onComplete?: (lastValue: number) => void,
+): LuaTuple<[Binding<number>, Motion, number]>;
 
-export function useMotion<T extends MotionGoal>(initialValue: T): LuaTuple<[Binding<T>, Motion<T>]>;
+export function useMotion<T extends MotionGoal>(
+	initialValue: T,
+	onComplete?: (lastValue: T) => void,
+): LuaTuple<[Binding<T>, Motion<T>, T]>;
 
-export function useMotion<T extends MotionGoal>(initialValue: T) {
+export function useMotion<T extends MotionGoal>(initialValue: T, onComplete?: (lastValue: T) => void) {
 	const motion = useMemo(() => {
 		return createMotion(initialValue);
 	}, []);
+	const initValue = useMemo(() => initialValue, []);
+	const onCompleteRef = useLatest(onComplete);
 
 	const [binding, setValue] = useBinding(initialValue);
 
-	useEventListener(RunService.Heartbeat, (delta) => {
-		const value = motion.step(delta);
+	useMountEffect(() => {
+		motion.onStep((v) => setValue(v));
+		motion.onComplete((val) => {
+			if (!onCompleteRef.current) return;
+			onCompleteRef.current(val);
+		});
 
-		if (value !== binding.getValue()) {
-			setValue(value);
-		}
+		motion.start();
+		return () => motion.destroy();
 	});
 
-	return $tuple(binding, motion);
+	return $tuple(binding, motion, initValue);
 }

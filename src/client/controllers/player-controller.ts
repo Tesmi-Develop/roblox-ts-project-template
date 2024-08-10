@@ -1,15 +1,17 @@
-import { Controller, OnInit, OnStart, Modding } from "@flamework/core";
-import { Atom, atom, subscribe, sync, SyncPayload } from "@rbxts/charm";
+import { Controller, Modding, OnInit } from "@flamework/core";
+import { subscribe, sync, SyncPayload } from "@rbxts/charm";
 import { SharedClasses } from "@rbxts/shared-classes-reflex";
 import { Events } from "client/network";
-import { DispatchSerializer, PlayerAtoms } from "shared/network";
-import { Inject } from "shared/decorators/field/inject";
-import { GameData, GameDataSchema } from "shared/schemas/game-data";
-import { GetCurrentThread } from "shared/utilities/function-utilities";
+import { InjectType } from "shared/decorators/field/Inject-type";
+import { PlayerAtoms } from "shared/network";
+import { GameAtom, GameData } from "shared/schemas/game-data-types";
 import { PlayerDataSchema } from "shared/schemas/player-data";
-import { DeepCloneTable } from "shared/utilities/object-utilities";
 import { PlayerData } from "shared/schemas/player-data-types";
+import { CreateAtom, WrappedAtom } from "shared/utilities/atom-utility";
+import { GetCurrentThread } from "shared/utilities/function-utilities";
+import { DeepCloneTable } from "shared/utilities/object-utilities";
 import { ReflexDevToolsController } from "./reflex-devtools-controller";
+import { GameDataSchema } from "shared/schemas/game-data";
 
 export interface OnDataReplicated {
 	OnDataReplicated(): void;
@@ -20,31 +22,41 @@ interface ClientPlayerData {
 	gameData: GameData;
 }
 
+export type PlayerAtom = WrappedAtom<PlayerData>;
+
+const gameAtom = CreateAtom(DeepCloneTable(GameDataSchema));
+Modding.registerDependency<GameAtom>((ctor) => gameAtom);
+
+const playerAtom = CreateAtom(DeepCloneTable(PlayerDataSchema));
+Modding.registerDependency<PlayerAtom>((ctor) => playerAtom);
+
 @Controller({
-	loadOrder: 0,
+	loadOrder: -1,
 })
-export class PlayerController implements OnInit, OnStart {
-	private atoms: PlayerAtoms = {
-		playerData: atom(DeepCloneTable(PlayerDataSchema)),
-		gameData: atom(DeepCloneTable(GameDataSchema)),
-	};
+export class PlayerController implements OnInit {
+	private atoms = {
+		playerData: playerAtom,
+		gameData: gameAtom,
+	} as unknown as PlayerAtoms;
+
 	private syncer = sync.client<PlayerAtoms>({
 		atoms: this.atoms,
 	});
 	private isGotData = false;
 
-	@Inject
+	@InjectType
 	private reflexDevTools!: ReflexDevToolsController;
 
-	onInit() {
+	public onInit() {
 		const listeners = new Set<OnDataReplicated>();
 		Modding.onListenerAdded<OnDataReplicated>((obj) => listeners.add(obj));
 		Modding.onListenerRemoved<OnDataReplicated>((obj) => listeners.delete(obj));
 
-		this.StartReplication();
 		this.expectData().then(() => {
 			listeners.forEach((listener) => listener.OnDataReplicated());
+			SharedClasses.StartClient();
 		});
+		this.StartReplication();
 	}
 
 	/**@metadata macro */
@@ -129,8 +141,8 @@ export class PlayerController implements OnInit, OnStart {
 	private async expectData() {
 		const thread = GetCurrentThread();
 
-		Events.Dispatch.connect((payloadBuffer) => {
-			this.dispatch(payloadBuffer);
+		Events.Dispatch.connect((payload) => {
+			this.dispatch(payload as SyncPayload<PlayerAtoms>);
 
 			if (!this.isGotData) {
 				this.isGotData = true;
@@ -141,25 +153,15 @@ export class PlayerController implements OnInit, OnStart {
 		thread.Yield();
 	}
 
-	private dispatch(payloadBuffer: { buffer: buffer; blobs: defined[] }) {
-		const payload = DispatchSerializer.deserialize(payloadBuffer.buffer, payloadBuffer.blobs) as SyncPayload<
-			{
-				[K in keyof PlayerAtoms]: PlayerAtoms[K] extends Atom<infer R> ? R : never;
-			}
-		>;
-
-		this.syncer.sync(payload as never);
+	private dispatch(payload: SyncPayload<PlayerAtoms>) {
+		this.syncer.sync(payload);
 
 		payload.data.playerData &&
-			this.reflexDevTools.DisplayData(`PlayerData-${payload.type}`, this.atoms.playerData());
-		payload.data.gameData && this.reflexDevTools.DisplayData(`GameData-${payload.type}`, this.atoms.gameData());
+			this.reflexDevTools.DisplayData(`PlayerData-${payload.type}`, payload.data.playerData);
+		payload.data.gameData && this.reflexDevTools.DisplayData(`GameData-${payload.type}`, payload.data.gameData);
 	}
 
 	private StartReplication() {
 		Events.StartReplication.fire();
-	}
-
-	public onStart() {
-		SharedClasses.StartClient();
 	}
 }

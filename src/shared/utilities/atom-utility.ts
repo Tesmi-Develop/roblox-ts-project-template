@@ -1,10 +1,11 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { Atom, atom, useAtom } from "@rbxts/charm";
+import { Atom, Molecule, atom, subscribe, useAtom } from "@rbxts/charm";
 import { None, produce } from "@rbxts/immut";
 import { Draft } from "@rbxts/immut/src/types-external";
 import type { PlayerAtom } from "server/components/player-component";
 import { PlayerData } from "shared/schemas/player-data-types";
-import { OmitFirstParam } from "types/utility";
+import { OmitFirstParam, VoidCallback } from "types/utility";
+import RepairDataFromDraft from "./repair-data-from-draft";
 
 type InferAtomState<T> = T extends Atom<infer S> ? S : T extends PlayerAtom ? PlayerData : never;
 
@@ -24,11 +25,24 @@ export interface ReactAtom<S> {
 	useAtom: () => Atom<S>;
 }
 
-export interface AtomMutation<S> {
+export interface AtomApi<S> {
 	Mutate: (
-		recipe: (draft: Draft<S>) => typeof draft | void | undefined | (S extends undefined ? typeof None : never),
+		recipe: (
+			draft: Draft<S>,
+			original: S,
+		) => typeof draft | void | undefined | (S extends undefined ? typeof None : never),
 	) => void;
+	Subscribe(listener: (state: S, prev: S) => void): () => void;
+	Subscribe<R>(selector: (state: S) => R, listener: (state: R, prevState: R) => void): () => void;
+	Destroy: () => void;
 }
+
+export type WrappedAtom<S, A = {}> = ReadonlyWrappedAtom<S> &
+	AtomApi<S> &
+	ReactAtom<S> &
+	{ [K in keyof A]: OmitFirstParam<A[K]> } &
+	Atom<S>;
+export type ReadonlyWrappedAtom<S> = Omit<AtomApi<S>, "Mutate"> & ReactAtom<S> & Molecule<S>;
 
 export const CreateAtom = <
 	S,
@@ -42,7 +56,8 @@ export const CreateAtom = <
 ) => {
 	const newAtom = atom(state);
 	const dispatches = {};
-	const atomApi = {} as ReactAtom<S> & AtomMutation<S>;
+	const atomApi = {} as ReactAtom<S> & AtomApi<S>;
+	const disconnects = new Set<VoidCallback>();
 
 	// eslint-disable-next-line roblox-ts/no-array-pairs
 	for (const [key, action] of pairs(actions)) {
@@ -60,10 +75,36 @@ export const CreateAtom = <
 	};
 	atomApi.useAtom = () => newAtom;
 
+	// API implementation
+	atomApi.Subscribe = function (this, ...args: unknown[]) {
+		if (args.size() === 1) {
+			return subscribe(newAtom, args[0] as (state: S) => void);
+		}
+
+		const cleanup = subscribe(
+			() => (args[0] as (state: S) => any)(newAtom()),
+			(state: S, prev) => task.spawn(args[1] as never, state, prev),
+		);
+
+		disconnects.add(cleanup);
+		return () => {
+			cleanup();
+			disconnects.delete(cleanup);
+		};
+	};
+
+	atomApi.Destroy = () => disconnects.forEach((fn) => fn());
+
+	atomApi.Mutate = (recipe) => {
+		const data = produce(newAtom(), (draft) => recipe(draft, newAtom()));
+		RepairDataFromDraft(data);
+		newAtom(data);
+	};
+
 	setmetatable(atomApi, {
 		__index: (_, index) => dispatches[index as never],
 		__call: (_, ...args) => newAtom(...(args as [])),
 	});
 
-	return atomApi as { [K in keyof A]: OmitFirstParam<A[K]> } & ReactAtom<S> & Atom<S> & AtomMutation<S>;
+	return atomApi as WrappedAtom<S, A>;
 };

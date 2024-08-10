@@ -1,11 +1,12 @@
 import { Reflect } from "@flamework/core";
 import { Constructor } from "@flamework/core/out/utility";
-import { PlayerDynamicData, PlayerSave } from "shared/schemas/player-data-types";
+import { Draft } from "@rbxts/immut/src/types-external";
+import { PlayerData, playerData } from "shared/schemas/player-data-types";
 
 /** @server */
 export interface OnSendData {
 	/** @hidden */
-	OnSendData(profile: PlayerSave, dynamicData: PlayerDynamicData): void;
+	OnSendData(data: Draft<playerData>, original: PlayerData): void;
 }
 
 /** @server */
@@ -15,21 +16,23 @@ export interface OnStartModule {
 }
 
 /** @server */
-export interface OnStopModule {
+export interface OnDestroyModule {
 	/** @hidden */
-	OnStopModule(): void;
+	OnDestroyModule(): void;
 }
 
 export const PlayerModules = new Map<string, Constructor>();
 
 /** @metadata reflect identifier flamework:implements */
-export const PlayerModuleDecorator = (
+export const PlayerModule = (
 	config: {
 		loadOrder?: number;
+		IsDisableInTestMode?: boolean;
 	} = {},
 ) => {
 	return (object: Constructor) => {
 		PlayerModules.set(`${object}`, object);
+		Reflect.defineMetadata(object, "playerModule:config", config);
 		Reflect.defineMetadata(object, "playerModule:loadOrder", config.loadOrder);
 	};
 };

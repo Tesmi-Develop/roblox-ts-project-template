@@ -1,4 +1,5 @@
 import { Reflect } from "@flamework/core";
+import { Constructor } from "@flamework/core/out/utility";
 import { DeepReadonly } from "types/utility";
 
 export function mapProperty<T extends object, K extends keyof T>(
@@ -63,3 +64,42 @@ export function DeepFreezeTable<T extends object>(obj: T) {
 export function GetIdentifier(obj: object, suffix = ""): string {
 	return Reflect.getMetadata<string>(obj, "identifier") ?? `UnidentifiedFlameworkListener${suffix}`;
 }
+
+export function FillInRange<T>(array: T[], start: number, _end: number, value: T) {
+	for (const i of $range(start, _end)) {
+		array[i] = value;
+	}
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function ArrayChunks<T extends defined>(array: T[], chunkSize: number) {
+	return array.reduce((resultArray, item, index) => {
+		const chunkIndex = math.floor(index / chunkSize);
+
+		if (!resultArray[chunkIndex]) {
+			resultArray[chunkIndex] = [] as T[];
+		}
+
+		resultArray[chunkIndex].push(item);
+
+		return resultArray;
+	}, [] as T[][]);
+}
+
+export function getDeferredConstructor<T extends object>(ctor: Constructor<T>) {
+	const obj = setmetatable({}, ctor as never) as InstanceType<T>;
+
+	return [
+		obj,
+		(...args: ConstructorParameters<Constructor<T>>) => {
+			const result = (obj as { "constructor"(...args: unknown[]): unknown }).constructor(...args);
+			assert(result === undefined || result === obj, `Deferred constructors are not allowed to return values.`);
+		},
+	] as const;
+}
+
+export const ConvertSet = <T extends defined>(set: Set<T>) => {
+	const array: T[] = [];
+	set.forEach((value) => array.push(value));
+	return array;
+};

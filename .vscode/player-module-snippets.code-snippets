@@ -1,0 +1,14 @@
+{
+	"PlayerModule": {
+		"prefix":[ "PlayerModule", "PM"],
+		"description": "Create a player module",
+		"body": [
+			"import { PlayerModule } from \"shared/decorators/constructor/player-module-decorator\";",
+			"",
+			"@PlayerModule()",
+			"export class ${TM_FILENAME_BASE/(.*)/${1:/pascalcase}/g} {",
+			"",
+			"}"
+		]
+	},
+}

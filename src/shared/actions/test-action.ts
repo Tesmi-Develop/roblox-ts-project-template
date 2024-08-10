@@ -1,15 +1,14 @@
-import type { PlayerComponent } from "server/components/player-component";
-import { Action } from "./action";
-import { Flamework } from "@flamework/core";
-import { SuccessProcessAction } from "shared/utilities/function-utilities";
+import { Logger } from "@rbxts/log";
 import { ActionDecorator } from "shared/decorators/constructor/action-decorator";
+import { SuccessProcessAction } from "shared/utilities/function-utilities";
+import { Action } from "./action";
 
-@ActionDecorator
-export class TestAction extends Action<{ someNumber: number }, void> {
-	protected validator = Flamework.createGuard<typeof this.Data>();
+@ActionDecorator()
+export class TestAction extends Action<{ code: string }, void> {
+	private logger!: Logger;
 
 	protected doAction() {
-		print(`TestAction: ${this.Data.someNumber}`);
+		this.logger.Debug("TestAction: doAction", this.Data);
 		return SuccessProcessAction();
 	}
 }

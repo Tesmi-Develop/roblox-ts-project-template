@@ -2,15 +2,15 @@ import { Networking } from "@flamework/networking";
 import { Atom } from "@rbxts/charm";
 import { createBinarySerializer } from "@rbxts/flamework-binary-serializer";
 import { IAction } from "types/IAction";
-import { GameData } from "./schemas/game-data";
 import { PlayerData } from "./schemas/player-data-types";
+import { GameData } from "./schemas/game-data-types";
 
 interface ClientToServerEvents {
 	StartReplication: () => void;
 }
 
 interface ServerToClientEvents {
-	Dispatch(payload: { buffer: buffer; blobs: defined[] }): void;
+	Dispatch(payload: {}): void;
 }
 
 interface ClientToServerFunctions {
@@ -25,8 +25,6 @@ export const GlobalFunctions = Networking.createFunction<ClientToServerFunctions
 export const ClientEvents = GlobalEvents.createClient({});
 export const ClientFunctions = GlobalFunctions.createClient({});
 
-export const DispatchSerializer =
-	createBinarySerializer<{ type: "init" | "patch"; data: Record<keyof PlayerAtoms, unknown> }>();
 export const ActionSerializer = createBinarySerializer<Omit<IAction, "Data"> & { Data: unknown }>();
 
 export type PlayerAtoms = {

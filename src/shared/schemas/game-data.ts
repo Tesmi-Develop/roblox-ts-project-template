@@ -1,7 +1,7 @@
 import { DeepFreezeTable } from "shared/utilities/object-utilities";
 import { DeepReadonly } from "types/utility";
+import { GameData } from "./game-data-types";
 
-const gameDataSchema = {};
-export const GameDataSchema = DeepFreezeTable(gameDataSchema) as DeepReadonly<typeof gameDataSchema>;
+const gameDataSchema: GameData = {};
 
-export type GameData = typeof GameDataSchema;
+export const GameDataSchema = DeepFreezeTable(gameDataSchema) as DeepReadonly<GameData>;

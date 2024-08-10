@@ -7,10 +7,12 @@ import { PatchDataType, ReturnMethods } from "types/utility";
 import { Janitor } from "@rbxts/janitor";
 import { CharacterRigR15, validateR15 } from "@rbxts/character-promise";
 import { Atom } from "@rbxts/charm";
-import { None, produce } from "@rbxts/immut";
+import { None, createDraft, produce } from "@rbxts/immut";
 import { Draft } from "@rbxts/immut/src/types-external";
 import type { PlayerAtom } from "server/components/player-component";
 import { PlayerData } from "shared/schemas/player-data-types";
+import { Modding } from "@flamework/core";
+import Object from "@rbxts/object-utils";
 
 export const FindFirstAncestorOfClassWithPredict = <T extends keyof Instances>(
 	instance: Instance,
@@ -32,10 +34,11 @@ export const FindFirstAncestorOfClassWithPredict = <T extends keyof Instances>(
 	return undefined;
 };
 
-export const FailedProcessAction = (message = ""): ServerResponseError => {
+export const FailedProcessAction = (message = "", code = 1): ServerResponseError => {
 	return {
 		success: false,
 		message: message,
+		code: math.max(code, 1),
 	};
 };
 
@@ -44,6 +47,7 @@ export const SuccessProcessAction = <T extends [undefined?] | [any] = [any]>(...
 	return {
 		success: true,
 		message: (value as unknown[])[0],
+		code: 0,
 	};
 };
 
@@ -100,10 +104,10 @@ export const CreatePointPart = (cframe?: CFrame, size?: Vector3, transparency?: 
 	part.Massless = true;
 	part.Anchored = true;
 	part.TopSurface = Enum.SurfaceType.Smooth;
-	part.Size = size || new Vector3(1, 1, 1);
-	part.CFrame = cframe || new CFrame(0, 0, 0);
-	part.Transparency = transparency || 0.7;
-	part.Color = color || new Color3(0, 0, 1);
+	part.Size = size ?? new Vector3(1, 1, 1);
+	part.CFrame = cframe ?? new CFrame(0, 0, 0);
+	part.Transparency = transparency ?? 0.7;
+	part.Color = color ?? new Color3(0, 0, 1);
 	part.Parent = Workspace;
 
 	return part;
@@ -140,10 +144,24 @@ export function ResolveNumberRange(problem: number | NumberRange) {
 	return typeIs(problem, "NumberRange") ? math.random(problem.Min, problem.Max) : problem;
 }
 
-export function ToHMS(seconds: number) {
+function FormatZeroZero(num: number) {
+	return string.format("%02i", num);
+}
+
+export function ToHMS(seconds: number, fullFormat = false) {
+	if (fullFormat) {
+		let minutes = (seconds - (seconds % 60)) / 60;
+		seconds = seconds - minutes * 60;
+		const hours = (minutes - (minutes % 60)) / 60;
+		minutes = minutes - hours * 60;
+
+		return `${FormatZeroZero(hours)}:${FormatZeroZero(minutes)}:${FormatZeroZero(seconds)}`;
+	}
+
 	if (seconds < Hour) {
 		return "%02i:%02i".format((seconds / 60) % 60, seconds % 60);
 	}
+
 	return "%02i:%02i:%02i".format(seconds / 60 ** 2, (seconds / 60) % 60, seconds % 60);
 }
 
@@ -204,6 +222,10 @@ export const GetDistance = (point1: Vector3, point2: Vector3, useY = true) => {
 	const point2WithoutY = new Vector3(point2.X, 0, point2.Z);
 
 	return point2WithoutY.sub(point1WithoutY).Magnitude;
+};
+
+export const GetNormalDelta = (point1: Vector3, point2: Vector3) => {
+	return point1.sub(point2).Unit;
 };
 
 export const WeldAllDescendants = (model: Model | Accessory, canCollide?: boolean) => {
@@ -271,7 +293,7 @@ export const ConcatArraies = <T extends defined, C extends defined>(array1: T[],
 	return result;
 };
 
-export const safeCloseThread = (thread: thread) => pcall(() => task.cancel(thread));
+export const safeCloseThread = (thread?: thread) => thread && pcall(() => task.cancel(thread))[0];
 
 export const AddAccessory = (accessory: Accessory, humanoid: Humanoid, weldOffest: CFrame) => {
 	humanoid.AddAccessory(accessory);
@@ -307,7 +329,9 @@ export const GetCurrentTime = (isRound = false): number => {
 };
 
 export const GetDifferenceNowTime = (time: number, isRound = false): number => {
-	return isRound ? math.round(Workspace.GetServerTimeNow() - time) : Workspace.GetServerTimeNow() - time;
+	return isRound
+		? math.round(math.abs(Workspace.GetServerTimeNow() - time))
+		: math.abs(Workspace.GetServerTimeNow() - time);
 };
 
 export type WeightElement = {
@@ -337,38 +361,36 @@ export const GetChanceElement = <T extends WeightElement | RateElement>(
 export const round = (n: number, scale = 2) => tonumber(string.format(`%.${scale}f`, n))!;
 
 export const GetRandomElement = <T extends WeightElement | RateElement>(elements: T[], additioanlChance = 0) => {
-	let chances = 0;
-
-	elements.sort((a, b) => {
-		return getWeightElement(a) < getWeightElement(b);
-	});
+	let suma = 0;
+	let range = 0;
 
 	elements.forEach((element) => {
-		chances += getWeightElement(element);
+		suma += getWeightElement(element);
 	});
 
-	const random = new Random();
-
-	let randomNumber = random.NextNumber(0, chances) + additioanlChance;
-	randomNumber = math.clamp(randomNumber, 0, chances);
-
-	let summ = 0;
-	let resultElement = undefined;
+	let randomNumber = math.random() * suma + additioanlChance;
+	randomNumber = math.clamp(randomNumber, 0, suma);
 
 	for (const i of $range(0, elements.size() - 1)) {
 		const foundElement = elements[i];
+		const weight = getWeightElement(foundElement);
+		range += weight;
 
-		summ += getWeightElement(foundElement);
-
-		if (randomNumber <= summ) {
-			resultElement = foundElement;
-			break;
+		if (randomNumber <= range) {
+			return foundElement as T;
 		}
 	}
 
-	assert(resultElement !== undefined, "Didn't found any element");
-	return resultElement as T;
+	throw "Didn't found any element";
 };
+
+export function PickRandomElement<T>(array: T[]): T {
+	return array[math.random(0, array.size() - 1)];
+}
+
+export function TimeoutPromise(timeout: number, rejectValue: unknown) {
+	return Promise.delay(timeout).then(() => Promise.reject(rejectValue));
+}
 
 export function CallMethod<T extends Callback>(
 	func: T,
@@ -378,7 +400,7 @@ export function CallMethod<T extends Callback>(
 	return func(context, ...(parameters as unknown[]));
 }
 
-export function PatchData<D extends object, P extends PatchDataType<D>>(prevData: D, patchData: P) {
+export function PatchData<D extends object>(prevData: D, patchData: PatchDataType<D>) {
 	prevData = table.clone(prevData);
 	patchData = table.clone(patchData);
 
@@ -466,6 +488,19 @@ export const MapElements = <K, V, C>(map: Map<K, V>, callback: (key: K, value: V
 	return newMap;
 };
 
+export const MapToArray = <K, V, C extends defined>(
+	map: Map<K, V> | Record<string, V>,
+	callback: (key: K, value: V) => C,
+) => {
+	const array = [] as C[];
+
+	(map as Map<K, V>).forEach((value, key) => {
+		array.push(callback(key, value));
+	});
+
+	return array;
+};
+
 const Timeout = 10;
 
 export const restorePrimaryPart = (model: Model) => {
@@ -517,10 +552,6 @@ export const fnDecorate = <T extends Callback>(target: T, ...fnDecorators: TFnDe
 	return newFunction;
 };
 
-export const Log = (...args: unknown[]) => {
-	print(`${IS_SERVER ? "Server: " : "Client: "}`, ...args);
-};
-
 export const CreateInstanceWithountCallingConstructor = <T extends object>(
 	constructor: Constructor<T>,
 	...args: ConstructorParameters<Constructor<T>>
@@ -570,3 +601,32 @@ export const MutateAtom = <T, C>(
 		? void
 		: boolean;
 };
+
+/** @metadata macro */
+export const FunctionMany = <T>(v?: Modding.Many<T>) => v!;
+
+export const WaitForTime = async (time: number) => {
+	const thread = GetCurrentThread();
+
+	const connection = RunService.Heartbeat.Connect(() => {
+		if (time > GetCurrentTime()) return;
+		connection.Disconnect();
+		thread.Resume();
+	});
+
+	thread.Yield();
+};
+
+export function ChooseInRange<T>(list: Record<number, T>, value: number) {
+	const keys = Object.keys(list);
+	const maxKey = math.max(...keys);
+	let best: number | undefined;
+
+	keys.forEach((key) => {
+		if (value < key && (best ? key < best : true)) {
+			best = key;
+		}
+	});
+
+	return best ? list[best] : list[maxKey];
+}

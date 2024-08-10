@@ -1,3 +1,4 @@
+/* eslint-disable prettier/prettier */
 import { Players, RunService } from "@rbxts/services";
 import { config, SpringOptions } from "@rbxts/ripple";
 import { $keys } from "rbxts-transformer-keys";
@@ -32,18 +33,33 @@ export const UDim2s = {
 	Full: UDim2.fromScale(1, 1),
 };
 
+export const Positions = {
+	Center: UDim2.fromScale(0.5, 0.5),
+	Left: UDim2.fromScale(0, 0.5),
+	Right: UDim2.fromScale(1, 0.5),
+	Top: UDim2.fromScale(0.5, 0),
+	Bottom: UDim2.fromScale(0.5, 1),
+	Full: UDim2.fromScale(1, 1),
+};
+
 export const Anchors = {
 	Center: new Vector2(0.5, 0.5),
 	Left: new Vector2(0, 0.5),
+	LeftTop: new Vector2(0, 0),
 	Right: new Vector2(1, 0.5),
+	RightTop: new Vector2(1, 0),
 	Top: new Vector2(0.5, 0),
+	TopRight: new Vector2(1, 0),
 	Bottom: new Vector2(0.5, 1),
+	BottomRight: new Vector2(1, 1),
+	bottomLeft: new Vector2(0, 1),
 };
 
 export const IS_SERVER = RunService.IsServer();
 export const IS_CLIENT = RunService.IsClient();
 export const IS_DEV = RunService.IsStudio();
 export const IS_PROD = !IS_DEV;
+export const IS_STUDIO = !RunService.IsRunMode();
 
 /** @client */
 export const PlayerGui =
