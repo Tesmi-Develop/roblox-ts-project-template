@@ -19,7 +19,7 @@ type AbstractConstructorType<T> = T extends abstract new (...args: never[]) => i
 
 export const TypedConfigs = Configs as unknown as Record<string, ConfigData & BaseConfig>;
 
-Object.keys(Configs as typeof TypedConfigs).forEach((key) => {
+Object.keys(Configs as never as typeof TypedConfigs).forEach((key) => {
 	TypedConfigs[key].Constructors = [];
 	TypedConfigs[key].Instances = [];
 	TypedConfigs[key].MappedConstructors = new Map();
@@ -42,7 +42,7 @@ const GetBaseConstructorFromConfig = (data: { UniqueKey: "__TSConfig__"; Constru
 
 const registerConfig = (ctor: Constructor) => {
 	const config = new ctor();
-	const key = Object.keys(Configs as typeof TypedConfigs).find(
+	const key = Object.keys(Configs as never as typeof TypedConfigs).find(
 		(value) => config instanceof (GetBaseConstructorFromConfig(Configs[value as never] as never) as Constructor),
 	);
 
@@ -73,11 +73,11 @@ export const GetConfigData = <
 	key: K,
 ) =>
 	TypedConfigs[configType][key] as unknown as BaseConfig<
-		typeof Configs[T] extends { Interface: infer R }
+		(typeof Configs)[T] extends { Interface: infer R }
 			? R
-			: typeof Configs[T] extends { Constructor: infer C }
-			? AbstractConstructorType<C>
-			: T extends keyof LuaConfigs
-			? typeof Configs[T]
-			: AbstractConstructorType<typeof Configs[T]>
+			: (typeof Configs)[T] extends { Constructor: infer C }
+				? AbstractConstructorType<C>
+				: T extends keyof LuaConfigs
+					? (typeof Configs)[T]
+					: AbstractConstructorType<(typeof Configs)[T]>
 	>[K];

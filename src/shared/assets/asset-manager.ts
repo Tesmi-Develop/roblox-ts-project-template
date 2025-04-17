@@ -3,10 +3,10 @@ import assets from "./assets";
 type ConvertPath<P, A extends string[] = []> = P extends ""
 	? A
 	: P extends `${infer R}/${infer C}`
-	? ConvertPath<C, [...A, R]>
-	: P extends `${string}.${string}`
-	? [...A, P]
-	: never;
+		? ConvertPath<C, [...A, R]>
+		: P extends `${string}.${string}`
+			? [...A, P]
+			: never;
 
 type IsFolder<F extends string> = F extends `${string}.${string}` ? false : true;
 
@@ -18,10 +18,10 @@ type ConvertPathWitoutFile<P, A extends string = ""> = P extends ""
 			P extends ""
 				? A
 				: P extends `${infer R}/${infer C}`
-				? ConvertPathWitoutFile<C, A extends "" ? R : `${A}/${R}`>
-				: A,
+					? ConvertPathWitoutFile<C, A extends "" ? R : `${A}/${R}`>
+					: A,
 			""
-	  >
+		>
 	: A;
 
 type Roots<P> = {

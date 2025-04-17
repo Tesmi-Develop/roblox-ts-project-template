@@ -3,6 +3,6 @@
 
 # To add a new tool, add an entry to this table.
 [tools]
-rojo = "rojo-rbx/rojo@7.4.0-rc3"
-asphalt = "jacktabscode/asphalt@0.3.3"
+rojo = "rojo-rbx/rojo@7.4.4"
+lune = "lune-org/lune@0.8.9"
 # rojo = "rojo-rbx/rojo@6.2.0"

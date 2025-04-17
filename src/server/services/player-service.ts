@@ -1,20 +1,17 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Components } from "@flamework/components";
 import { Flamework, Modding, OnStart, Service } from "@flamework/core";
-import { Atom, SyncPayload } from "@rbxts/charm";
+import { Logger } from "@rbxts/log";
+import Signal from "@rbxts/rbx-better-signal";
 import { Players, StarterGui } from "@rbxts/services";
-import { SharedComponentHandler } from "@rbxts/shared-components-flamework";
 import { PlayerComponent } from "server/components/player-component";
 import { Events, Functions } from "server/network";
-import { ActionConstructors } from "shared/decorators/constructor/action-decorator";
-
-import { AtomObserver } from "@rbxts/observer-charm";
-import Signal from "@rbxts/rbx-better-signal";
 import { WaitForEndTestMode } from "server/utility-for-tests/test-mode";
+import { ActionConstructors } from "shared/decorators/constructor/action-decorator";
 import { InjectType } from "shared/decorators/field/Inject-type";
 import { Instantiate } from "shared/flamework-utils";
-import { ActionSerializer, PlayerAtoms } from "shared/network";
-import { playerData } from "shared/schemas/player-data-types";
+import { ActionSerializer } from "shared/network";
+import { IS_STUDIO } from "shared/utilities/constants";
 import { FailedProcessAction } from "shared/utilities/function-utilities";
 import {
 	ForeachStartedPlayers,
@@ -24,7 +21,6 @@ import {
 } from "shared/utilities/player";
 import { IAction } from "types/IAction";
 import { OnPlayerJoined, OnPlayerLeaved } from "types/player/player-events";
-import { GameDataService } from "./game-data-service";
 import("@rbxts/shared-components-flamework");
 
 const validateActionData = Flamework.createGuard<IAction>();
@@ -35,11 +31,7 @@ export class PlayerService implements OnStart {
 	private components!: Components;
 
 	@InjectType
-	private sharedComponentHandler!: SharedComponentHandler;
-	private observer!: AtomObserver;
-
-	@InjectType
-	private gameDataService!: GameDataService;
+	private logger!: Logger;
 
 	private players = new Map<string, PlayerComponent>();
 	private enableSignals?: Signal;
@@ -60,11 +52,25 @@ export class PlayerService implements OnStart {
 		return this.players;
 	}
 
+	public GetPlayer(userId: number) {
+		const player = this.players.get(tostring(userId));
+		assert(player, "Player not found");
+
+		return player;
+	}
+
+	public TryGetPlayer(userId: number) {
+		const player = this.players.get(tostring(userId));
+		if (!player) return undefined;
+
+		return player;
+	}
+
 	public async onStart() {
-		this.observer = this.sharedComponentHandler.GetAtomObserver();
 		this.clearStarterGUI();
 
 		const processPlayer = async (player: Player) => {
+			this.logger.Info(`Player ${player.Name} joined the server`);
 			await WaitForEndTestMode();
 
 			const component = this.components.addComponent<PlayerComponent>(player);
@@ -74,37 +80,14 @@ export class PlayerService implements OnStart {
 			});
 		};
 
-		Players.PlayerAdded.Connect(processPlayer);
-		Players.GetPlayers().forEach(processPlayer);
+		if (!IS_STUDIO) {
+			Players.PlayerAdded.Connect(processPlayer);
+			Players.GetPlayers().forEach(processPlayer);
+		}
 
 		this.connectNetworkFunctions();
 		this.handlePlayersJoined();
 		this.handlePlayersLeaved();
-	}
-
-	public ConnectPlayerSync(playerAtom: Atom<playerData>, callback: (payload: SyncPayload<PlayerAtoms>) => void) {
-		const connection1 = this.observer.Connect(playerAtom, (payload) => {
-			callback({ type: "patch", data: { playerData: payload } });
-		});
-
-		const connection2 = this.observer.Connect(this.gameDataService.GetAtom(), (payload) => {
-			callback({ type: "patch", data: { gameData: payload as never } });
-		});
-
-		return () => {
-			connection1();
-			connection2();
-		};
-	}
-
-	public GenerateHydratePayload(playerAtom: Atom<any>) {
-		return {
-			type: "init",
-			data: {
-				playerData: playerAtom(),
-				gameData: this.gameDataService.GetAtom()(),
-			},
-		};
 	}
 
 	public SetEnabled(enabled: boolean) {
@@ -150,6 +133,8 @@ export class PlayerService implements OnStart {
 	}
 
 	private connectNetworkFunctions() {
+		if (IS_STUDIO) return;
+
 		Functions.DoAction.setCallback(async (player, actionBuffer) => {
 			const actionData = ActionSerializer.deserialize(actionBuffer.buffer, actionBuffer.blobs) as IAction;
 			const playerComponent = GetPlayerComponent(player);
@@ -177,9 +162,10 @@ export class PlayerService implements OnStart {
 
 		Events.StartReplication.connect(async (player) => {
 			await this.waitForEnable();
-			if (GetPlayerComponent(player)?.IsStatus("Started")) return;
 
 			const playerComponent = await WaitPlayerComponent(player);
+			if (playerComponent.IsStatus("Started")) return;
+
 			await playerComponent.WaitForStatus("WaitForStarting");
 			playerComponent.StartReplication();
 		});

@@ -1,5 +1,5 @@
 {
-	"name": "flamework-game",
+	"name": "your-project-name",
 	"globIgnorePaths": [
 		"**/package.json",
 		"**/tsconfig.json"
@@ -8,9 +8,6 @@
 		"$className": "DataModel",
 		"ServerScriptService": {
 			"$className": "ServerScriptService",
-			"Commands": {
-				"$path": "out/commands"
-			},
 			"TS": {
 				"$path": "out/server"
 			}

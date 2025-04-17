@@ -1,11 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { Atom, Molecule, atom, subscribe, useAtom } from "@rbxts/charm";
+import { Atom, Molecule, atom, observe, subscribe } from "@rbxts/charm";
 import { None, produce } from "@rbxts/immut";
 import { Draft } from "@rbxts/immut/src/types-external";
 import type { PlayerAtom } from "server/components/player-component";
 import { PlayerData } from "shared/schemas/player-data-types";
 import { OmitFirstParam, VoidCallback } from "types/utility";
-import RepairDataFromDraft from "./repair-data-from-draft";
 
 type InferAtomState<T> = T extends Atom<infer S> ? S : T extends PlayerAtom ? PlayerData : never;
 
@@ -34,14 +33,17 @@ export interface AtomApi<S> {
 	) => void;
 	Subscribe(listener: (state: S, prev: S) => void): () => void;
 	Subscribe<R>(selector: (state: S) => R, listener: (state: R, prevState: R) => void): () => void;
+	Observe<Item>(
+		callback: (state: S) => readonly Item[],
+		factory: (item: Item, index: number) => VoidCallback | void,
+	): VoidCallback;
+
 	Destroy: () => void;
 }
 
 export type WrappedAtom<S, A = {}> = ReadonlyWrappedAtom<S> &
 	AtomApi<S> &
-	ReactAtom<S> &
-	{ [K in keyof A]: OmitFirstParam<A[K]> } &
-	Atom<S>;
+	ReactAtom<S> & { [K in keyof A]: OmitFirstParam<A[K]> } & Atom<S>;
 export type ReadonlyWrappedAtom<S> = Omit<AtomApi<S>, "Mutate"> & ReactAtom<S> & Molecule<S>;
 
 export const CreateAtom = <
@@ -68,13 +70,6 @@ export const CreateAtom = <
 		}) as never;
 	}
 
-	// React implementation
-	atomApi.useSelector = function <R>(this, selector?: (state: S) => R) {
-		const state = useAtom(newAtom);
-		return selector?.(state) ?? state;
-	};
-	atomApi.useAtom = () => newAtom;
-
 	// API implementation
 	atomApi.Subscribe = function (this, ...args: unknown[]) {
 		if (args.size() === 1) {
@@ -93,11 +88,21 @@ export const CreateAtom = <
 		};
 	};
 
+	atomApi.Observe = function (this, selector, factory) {
+		const cleanup = observe(() => selector(newAtom()), factory);
+
+		disconnects.add(cleanup);
+		return () => {
+			cleanup();
+			disconnects.delete(cleanup);
+		};
+	};
+
 	atomApi.Destroy = () => disconnects.forEach((fn) => fn());
 
 	atomApi.Mutate = (recipe) => {
 		const data = produce(newAtom(), (draft) => recipe(draft, newAtom()));
-		RepairDataFromDraft(data);
+		//RepairDataFromDraft(data);
 		newAtom(data);
 	};
 

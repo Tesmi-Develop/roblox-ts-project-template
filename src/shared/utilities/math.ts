@@ -25,3 +25,25 @@ export function MapNumberToRange(value: number, min1: number, max1: number, min2
 	const normalizedValue = (value - min1) / (max1 - min1);
 	return min2 + normalizedValue * (max2 - min2);
 }
+
+export function OnlyYOrientation(cframe: CFrame) {
+	const [_, y] = cframe.ToOrientation();
+	return CFrame.fromOrientation(0, y, 0);
+}
+
+export function NullifyZAxisOrientation(cframe: CFrame) {
+	const [x, y] = cframe.ToOrientation();
+	return CFrame.fromOrientation(x, y, 0);
+}
+
+export function OrientationToVector(cframe: CFrame) {
+	return new Vector3(...cframe.ToOrientation());
+}
+
+export function OrientationFromVector(vec: Vector3) {
+	return CFrame.fromOrientation(
+		math.clamp(vec.X, -math.pi, math.pi),
+		math.clamp(vec.Y, -math.pi, math.pi),
+		math.clamp(vec.Z, -math.pi, math.pi),
+	);
+}

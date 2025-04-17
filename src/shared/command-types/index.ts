@@ -1,3 +1,3 @@
 export const CustomCommanderType = {
-	AbbreviateNumber: "abbreviateNumber",
+	AllPlayers: "all",
 } as const;

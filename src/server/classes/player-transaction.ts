@@ -18,7 +18,10 @@ export class PlayerTransaction implements ITransactEntity {
 		);
 	}
 
-	constructor(private playerComponent: PlayerComponent, private onTransact: () => void) {}
+	constructor(
+		private playerComponent: PlayerComponent,
+		private onTransact: () => void,
+	) {}
 
 	public Init() {
 		assert(!PlayerTransaction.players.has(this.playerComponent), "Player already in transaction");

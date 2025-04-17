@@ -1,9 +1,9 @@
 import { getIdFromSpecifier } from "@flamework/components/out/utility";
 import { Constructor } from "@flamework/core/out/utility";
 import { AddMultiplaceObject } from "shared/flamework-utils";
-import { SettedPlaces, PlaceNames } from "shared/places";
+import { Place, PlaceNames, SettedPlaces } from "shared/places";
 
-export const Multiplace = (typeFilter: "Include" | "Exclude", places: PlaceNames[] | PlaceNames) => {
+export const Multiplace = (typeFilter: "Include" | "Exclude", places: Place[] | PlaceNames) => {
 	return (ctor: Constructor) => {
 		const currentPlaces = typeIs(places, "string") ? [places] : places;
 

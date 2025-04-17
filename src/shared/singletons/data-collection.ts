@@ -1,41 +1,54 @@
+/* eslint-disable @typescript-eslint/no-unused-expressions */
+/* eslint-disable @typescript-eslint/no-require-imports */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Flamework, Modding } from "@flamework/core";
 import { ReplicatedStorage } from "@rbxts/services";
 import { t } from "@rbxts/t";
 import { $keys } from "rbxts-transformer-keys";
 import { TypedConfigs } from "shared/decorators/constructor/config-decorator";
-import { LuaConfigs } from "shared/game-data/configs";
+import type { Configs, LuaConfigs } from "shared/game-data/configs";
+import { Config } from "shared/game-data/constructors/Config";
 import { DataStructure } from "shared/game-data/structure";
-import { IS_CLIENT, IS_DEV } from "shared/utilities/constants";
+import { IS_CLIENT, IS_DEV, IS_STUDIO } from "shared/utilities/constants";
 import { GetLogger } from "shared/utilities/setup-logger";
 import { DeepReadonly } from "types/utility";
 
-const OBJECT_VALUE_NAME = "DataFolderReferense";
-export type DataCollection = DeepReadonly<DataStructure>;
+const compiledStructure = {} as DeepReadonly<DataStructure>;
+export type DataCollection = DataStructure;
 
 export class DataCollectionHandler {
-	private DataFolderReferense!: ObjectValue;
-	private compiledStructure = {} as DeepReadonly<DataStructure>;
 	private logger = GetLogger();
+	public static Instance: DataCollectionHandler | undefined;
 
-	private initReferense() {
-		const referense = ReplicatedStorage.FindFirstChild(OBJECT_VALUE_NAME);
-		assert(referense && referense.IsA("ObjectValue"), "DataFolderReferense not found or not an ObjectValue");
-		this.DataFolderReferense = referense;
-		assert(referense.Value !== undefined, "DataFolderReferense is not set");
+	public static Init(referense: Instance | DataStructure) {
+		this.Instance?.Destroy();
+		this.Instance = new DataCollectionHandler();
+		this.Instance.Start(referense);
+
+		return () => {
+			this.Instance?.Destroy();
+			this.Instance = undefined;
+		};
 	}
 
 	public GetStructure() {
-		return this.compiledStructure;
+		return compiledStructure;
 	}
 
-	private compileStructure() {
+	private compileStructure(referense: Instance | DataStructure) {
+		if (!typeIs(referense, "Instance")) {
+			for (const [key, value] of pairs(referense)) {
+				compiledStructure[key as never] = value as never;
+			}
+			return;
+		}
+
 		const readInstance = (instance: Instance) => {
 			const fullPath = instance.GetFullName();
 			const splitted = fullPath.split(".");
-			const startPosition = splitted.indexOf(this.DataFolderReferense.Value!.Name);
+			const startPosition = splitted.indexOf(referense.Name);
 
-			let pointer: object = this.compiledStructure;
+			let pointer: object = compiledStructure;
 			let object: unknown = {};
 			object = instance.IsA("ModuleScript") ? require(instance) : object;
 
@@ -61,7 +74,7 @@ export class DataCollectionHandler {
 			});
 		};
 
-		IterateInstance(this.DataFolderReferense.Value!);
+		IterateInstance(referense);
 	}
 
 	private initLuaConfigs() {
@@ -77,23 +90,62 @@ export class DataCollectionHandler {
 
 	private validateStructure() {
 		if (IS_CLIENT) return;
-		IS_DEV && print("Current structure: ", this.compiledStructure);
+		IS_DEV && print("Current structure: ", compiledStructure);
 
 		const guard = Flamework.createGuard<DataStructure>() as unknown as t.checkWithMessage;
-		const [success, errorMessage] = guard(this.compiledStructure);
+		const [success, errorMessage] = guard(compiledStructure);
 
 		!success && this.logger.Error(errorMessage);
 	}
 
-	public Start() {
-		this.initReferense();
-		this.compileStructure();
+	public Destroy() {
+		for (const [key, value] of pairs(TypedConfigs)) {
+			value.Constructors = [];
+			value.Instances = [];
+			value.MappedConstructors = new Map();
+			value.MappedInstances = new Map();
+		}
+	}
+
+	public RegisterConfig<C extends keyof Omit<typeof Configs, keyof Omit<typeof Configs, keyof LuaConfigs>>>(
+		config: LuaConfigs[C],
+		category: C,
+	) {
+		TypedConfigs[category].Instances.push(config);
+		TypedConfigs[category].MappedInstances.set((config as Record<string, string>).Name, config);
+
+		return () => {
+			const configs = TypedConfigs[category];
+			configs.Instances.remove(
+				configs.Instances.findIndex(
+					(instance) => (instance as Config).Name === (config as Record<string, string>).Name,
+				),
+			);
+			configs.MappedInstances.delete((config as Record<string, string>).Name);
+		};
+	}
+
+	public Start(referense: Instance | DataStructure) {
+		this.compileStructure(referense);
 		this.validateStructure();
 		this.initLuaConfigs();
 	}
 }
 
-const collection = new DataCollectionHandler();
-collection.Start();
+Modding.registerDependency<DataCollectionHandler>(() => DataCollectionHandler.Instance);
+Modding.registerDependency<DataCollection>(() => compiledStructure);
 
-Modding.registerDependency<DataCollection>(() => collection.GetStructure());
+export function LoadGameDataFromReplicatedStorage() {
+	const referense = ReplicatedStorage.FindFirstChild("GameData");
+
+	if (!referense) {
+		warn("Not found GameData instance in ReplicatedStorage. Loading default structure");
+		return DataCollectionHandler.Init(import("shared/game-data/mock-data-structure").expect().DataStructureMock);
+	}
+
+	return DataCollectionHandler.Init(referense);
+}
+
+if (IS_STUDIO) {
+	DataCollectionHandler.Init(import("shared/game-data/mock-data-structure").expect().DataStructureMock);
+}

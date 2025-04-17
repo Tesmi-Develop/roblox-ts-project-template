@@ -1,18 +1,25 @@
+import { Modding } from "@flamework/core";
 import { AbstractConstructor, Constructor } from "@flamework/core/out/utility";
-import { Workspace, RunService } from "@rbxts/services";
-import { Minute, Hour, PATCH_ACTION_REMOVE, IS_SERVER, IS_CLIENT } from "./constants";
-import { ServerResponse, ServerResponseError } from "types/server-response";
-import { KeyCode } from "@rbxts/pretty-react-hooks";
-import { PatchDataType, ReturnMethods } from "types/utility";
-import { Janitor } from "@rbxts/janitor";
 import { CharacterRigR15, validateR15 } from "@rbxts/character-promise";
 import { Atom } from "@rbxts/charm";
-import { None, createDraft, produce } from "@rbxts/immut";
+import { None, produce } from "@rbxts/immut";
 import { Draft } from "@rbxts/immut/src/types-external";
+import { Janitor } from "@rbxts/janitor";
+import Object from "@rbxts/object-utils";
+import { KeyCode } from "@rbxts/pretty-react-hooks";
+import { Players, RunService, Workspace } from "@rbxts/services";
 import type { PlayerAtom } from "server/components/player-component";
 import { PlayerData } from "shared/schemas/player-data-types";
-import { Modding } from "@flamework/core";
-import Object from "@rbxts/object-utils";
+import { ServerResponse, ServerResponseError } from "types/server-response";
+import { PatchDataType, ReturnMethods } from "types/utility";
+import { Hour, IS_CLIENT, Minute, PATCH_ACTION_REMOVE } from "./constants";
+
+export const RecursiveFindChild = <T extends Instance>(parent: Instance, filter: (obj: Instance) => boolean) => {
+	for (let i = 0; i < parent.GetDescendants().size(); i++) {
+		const child = parent.GetDescendants()[i];
+		if (filter(child)) return child as T;
+	}
+};
 
 export const FindFirstAncestorOfClassWithPredict = <T extends keyof Instances>(
 	instance: Instance,
@@ -27,7 +34,7 @@ export const FindFirstAncestorOfClassWithPredict = <T extends keyof Instances>(
 		if (needInstance === undefined) break;
 
 		if (predict(needInstance as Instances[T])) {
-			return needInstance;
+			return needInstance as Instances[T];
 		}
 	}
 
@@ -51,9 +58,9 @@ export const SuccessProcessAction = <T extends [undefined?] | [any] = [any]>(...
 	};
 };
 
-export const GetRandomNumberFromNumberRange = (value: NumberRange) => {
+export const GetRandomNumberFromNumberRange = (value: NumberRange, isRound = false) => {
 	const random = new Random();
-	return random.NextNumber(value.Min, value.Max);
+	return isRound ? random.NextInteger(value.Min, value.Max) : random.NextNumber(value.Min, value.Max);
 };
 
 export const CreateHitboxPart = (cframe?: CFrame, size?: Vector3, transparency?: number, color?: Color3) => {
@@ -122,6 +129,17 @@ export const GetCharactersInBox = (cframe: CFrame, size: Vector3, overlapParams:
 
 		if (!validateR15(model)) return;
 		characters.add(model as CharacterRigR15);
+	});
+
+	return characters;
+};
+
+export const GetCharacters = () => {
+	const characters: Model[] = [];
+
+	Players.GetPlayers().forEach((player) => {
+		const character = player.Character;
+		if (character) characters.push(character);
 	});
 
 	return characters;
@@ -385,7 +403,12 @@ export const GetRandomElement = <T extends WeightElement | RateElement>(elements
 };
 
 export function PickRandomElement<T>(array: T[]): T {
+	assert(!array.isEmpty(), "Array is empty");
 	return array[math.random(0, array.size() - 1)];
+}
+
+export function PickSign() {
+	return math.random(0, 1) === 1 ? 1 : -1;
 }
 
 export function TimeoutPromise(timeout: number, rejectValue: unknown) {
@@ -420,11 +443,8 @@ export function PatchData<D extends object>(prevData: D, patchData: PatchDataTyp
 
 type TMethod<T> = (self: InferThis<T>, ...parameters: Parameters<T>) => ReturnType<T>;
 
-type GetContextFromConstructors<T> = T extends Constructor<infer C>
-	? C
-	: T extends AbstractConstructor<infer C>
-	? C
-	: never;
+type GetContextFromConstructors<T> =
+	T extends Constructor<infer C> ? C : T extends AbstractConstructor<infer C> ? C : never;
 
 export const ModifyConstructorMethod = <T extends Constructor | AbstractConstructor, C extends Callback = Callback>(
 	_constructor: T,
@@ -629,4 +649,34 @@ export function ChooseInRange<T>(list: Record<number, T>, value: number) {
 	});
 
 	return best ? list[best] : list[maxKey];
+}
+
+export function InRange(value: number, min: number, max: number) {
+	return value >= min && value <= max;
+}
+
+export function PickRandomElements<T extends defined[]>(elements: T, count: number) {
+	assert(InRange(count, 0, elements.size()), "Count out of range");
+	const copy = table.clone(elements);
+	const result = [] as unknown as T;
+
+	while (result.size() < count) {
+		const index = math.random(0, copy.size() - 1);
+		const element = copy[index];
+
+		copy.remove(index);
+		result.push(element);
+	}
+
+	return result;
+}
+
+export function ShuffleElements<T extends defined[]>(elements: T) {
+	for (let i = elements.size() - 1; i > 0; i--) {
+		const j = math.random(i);
+		const temp = elements[i];
+
+		elements[i] = elements[j];
+		elements[j] = temp;
+	}
 }

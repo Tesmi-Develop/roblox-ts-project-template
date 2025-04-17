@@ -1,22 +1,38 @@
 import { Flamework, OnInit, OnStart, Service } from "@flamework/core";
-import { Collection, createCollection, setConfig } from "@rbxts/lapis";
-import { DataStoreService, RunService } from "@rbxts/services";
+import type { Collection, CollectionOptions, CollectionSchema, LapisConfig } from "@rbxts/lapis";
+import { DataStoreService, ReplicatedStorage, RunService } from "@rbxts/services";
 import DataStoreServiceMock from "server/mock-datastore";
 import { DataStoreBrokenDataScope, DataStoreName } from "shared/schemas/data-store-name";
 import { PlayerDataSchema } from "shared/schemas/player-data";
 import { PlayerData } from "shared/schemas/player-data-types";
+import { IS_STUDIO } from "shared/utilities/constants";
+
+function FindLapisModule() {
+	let result: ModuleScript | undefined;
+	let found: Instance = ReplicatedStorage;
+
+	while (!result) {
+		found = found.FindFirstChild("lapis", true)!;
+		if (!found) {
+			throw "lapis module not found";
+		}
+
+		if (found.IsA("ModuleScript")) {
+			result = found;
+			break;
+		}
+	}
+
+	return result;
+}
 
 @Service({})
 export class DataStoreWrapperService implements OnStart, OnInit {
 	private collection!: Collection<PlayerData["Save"]>;
 	private storeForBrokenData?: DataStore;
 
-	public GetCollection() {
-		return this.collection;
-	}
-
 	private IsEnableDataStoreAPI() {
-		const [success] = pcall(() => DataStoreService.GetDataStore(DataStoreName));
+		const [success] = pcall(() => DataStoreService.GetDataStore("__PS").GetAsync("-1"));
 		return RunService.IsRunning() && success;
 	}
 
@@ -27,13 +43,47 @@ export class DataStoreWrapperService implements OnStart, OnInit {
 		}
 	}
 
-	onInit() {
+	public GetCollection() {
+		return this.collection;
+	}
+
+	public onInit() {
 		this.initDataStoreForBrokenData();
-		setConfig({
+
+		let lapis: {
+			createCollection: <T extends CollectionSchema, R extends boolean = true>(
+				name: string,
+				options: CollectionOptions<T, R>,
+			) => Collection<T, R>;
+			setConfig: (config: Partial<LapisConfig>) => void;
+		};
+
+		if (IS_STUDIO) {
+			const module = FindLapisModule();
+			const internalModule = module.FindFirstChild("Internal") as ModuleScript;
+
+			// eslint-disable-next-line @typescript-eslint/no-require-imports
+			const internalApi = require(internalModule) as {
+				new: (value: boolean) => typeof import("@rbxts/lapis");
+			};
+			const internal = internalApi.new(false);
+			lapis = {
+				setConfig: ((config: unknown) => {
+					internal.setConfig(config as never);
+				}) as never,
+				createCollection: ((name: unknown, config: unknown) => {
+					return internal.createCollection(name as never, config as never);
+				}) as never,
+			};
+		} else {
+			lapis = import("@rbxts/lapis").expect();
+		}
+
+		lapis.setConfig({
 			dataStoreService: this.IsEnableDataStoreAPI() ? DataStoreService : new DataStoreServiceMock(),
 		});
 
-		this.collection = createCollection(DataStoreName, {
+		this.collection = lapis.createCollection(DataStoreName, {
 			defaultData: PlayerDataSchema["Save"],
 			validate: Flamework.createGuard(),
 		});

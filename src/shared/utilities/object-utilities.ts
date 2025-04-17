@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { Reflect } from "@flamework/core";
 import { Constructor } from "@flamework/core/out/utility";
 import { DeepReadonly } from "types/utility";
@@ -14,6 +15,21 @@ export function mapProperty<T extends object, K extends keyof T>(
 	}
 
 	return object;
+}
+
+type InferMap<T> = T extends Map<infer K, infer V> ? [K, V] : [string, T];
+
+export function Mapper<T extends Map<any, any>, C extends defined>(
+	object: T,
+	mapper: (value: InferMap<T>[0], key: InferMap<T>[1]) => C,
+) {
+	const result: C[] = [];
+
+	for (const [key, value] of pairs(object)) {
+		result.push(mapper(value, key));
+	}
+
+	return result;
 }
 
 export function FilterMapToArray<K, V extends defined>(map: Map<K, V>, callback: (value: V, key: K) => boolean) {
@@ -103,3 +119,21 @@ export const ConvertSet = <T extends defined>(set: Set<T>) => {
 	set.forEach((value) => array.push(value));
 	return array;
 };
+
+interface ConstructorWithIndex extends Constructor {
+	__index: object;
+}
+
+export function GetInheritanceTree<T>(constructor: Constructor, parent: Constructor) {
+	let currentClass = constructor as ConstructorWithIndex;
+	let metatable = getmetatable(currentClass) as ConstructorWithIndex;
+	const tree = [constructor] as Constructor<T>[];
+
+	while (currentClass && rawget(metatable, "__index") !== parent) {
+		currentClass = rawget(metatable, "__index") as ConstructorWithIndex;
+		metatable = getmetatable(currentClass) as ConstructorWithIndex;
+		tree.push(currentClass as unknown as Constructor<T>);
+	}
+
+	return tree;
+}

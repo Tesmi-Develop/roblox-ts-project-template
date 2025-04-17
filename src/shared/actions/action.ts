@@ -9,7 +9,7 @@ import { OnlyClient } from "shared/decorators/method/only-client";
 import { OnlyServer } from "shared/decorators/method/only-server";
 import { ActionSerializer, ClientFunctions } from "shared/network";
 import { IS_CLIENT, LocalPlayer } from "shared/utilities/constants";
-import { FailedProcessAction, GetClassName } from "shared/utilities/function-utilities";
+import { FailedProcessAction, GetClassName, SuccessProcessAction } from "shared/utilities/function-utilities";
 import { IAction } from "types/IAction";
 import { ServerResponse } from "types/server-response";
 
@@ -17,6 +17,23 @@ type IsEmptyObject<T> = T extends Record<string, never> ? true : false;
 
 const MESSAGE_WHEN_HAVE_COOLDOWN = "You're sending too many actions!";
 const CODE_WHEN_HAVE_COOLDOWN = 2;
+
+type InferActionResponse<A extends Action<any, any>> = A extends Action<any, infer R> ? R : never;
+
+type SendActionParams<A extends Action<any, any>> =
+	IsEmptyObject<A["Data"]> extends true
+		? [void, actionIndefier?: Modding.Generic<A, "id">]
+		: [data: A["Data"], actionIndefier?: Modding.Generic<A, "id">];
+/**
+ * @client
+ * @metadata macro
+ */
+export function SendAction<A extends Action<any, any>>(...args: SendActionParams<A>) {
+	const [data, actionIndefier] = args as [unknown, Modding.Generic<A, "id">?];
+	assert(actionIndefier);
+
+	return Actions.get(actionIndefier)!.Send(data) as Promise<ServerResponse<InferActionResponse<A>>>;
+}
 
 export abstract class Action<D extends object = {}, R = undefined> implements IAction<D> {
 	/**
@@ -27,10 +44,13 @@ export abstract class Action<D extends object = {}, R = undefined> implements IA
 		assert(actionIndefier);
 		return Actions.get(actionIndefier) as T;
 	}
+
 	private static Cooldowns = new Map<string, Set<Player>>();
+	private static actionInProcessing = new Map<string, Set<string>>();
 	public static OnGotResponse = new Signal<(action: Action<any, any>, response: ServerResponse<unknown>) => void>();
 	public readonly Name: string;
 	public readonly Data: D;
+	public IsSingleUse = false;
 	protected Cooldown = 0;
 	protected playerComponent!: PlayerComponent;
 
@@ -73,23 +93,50 @@ export abstract class Action<D extends object = {}, R = undefined> implements IA
 		);
 	}
 
-	/**
-	 * @server
-	 */
+	private giveActionDebounce() {
+		const playerName = IS_CLIENT ? LocalPlayer.Name : this.playerComponent.Name;
+		const actionsInProcessing = Action.actionInProcessing.get(playerName) ?? new Set<string>();
+
+		Action.actionInProcessing.set(playerName, actionsInProcessing);
+		actionsInProcessing.add(this.Name);
+
+		return () => actionsInProcessing.delete(this.Name);
+	}
+
+	private haveActionDebounce() {
+		const playerName = IS_CLIENT ? LocalPlayer.Name : this.playerComponent.Name;
+		return Action.actionInProcessing.get(playerName)?.has(this.Name) ?? false;
+	}
+
+	/** @server */
 	@OnlyServer
 	public DoAction(): ServerResponse<R> | Promise<ServerResponse<R>> {
 		assert(this.playerComponent, "Invalid player component");
+
 		if (this.haveCooldown()) {
 			return FailedProcessAction(MESSAGE_WHEN_HAVE_COOLDOWN, CODE_WHEN_HAVE_COOLDOWN);
 		}
+
+		if (this.IsSingleUse && this.haveActionDebounce()) {
+			return FailedProcessAction("Action in processing");
+		}
+
+		const removeDebounce = this.giveActionDebounce();
 		const result = this.doAction(this.playerComponent);
 		this.giveCooldown();
-		return result;
+
+		if (!Promise.is(result)) {
+			removeDebounce();
+			return result;
+		}
+
+		return result.then((result) => {
+			removeDebounce();
+			return result;
+		});
 	}
 
-	/**
-	 * @client
-	 */
+	/** @client */
 	@OnlyClient
 	public async Send(data: IsEmptyObject<D> extends true ? void : D) {
 		if (!RunService.IsRunning()) {
@@ -100,7 +147,13 @@ export abstract class Action<D extends object = {}, R = undefined> implements IA
 			return FailedProcessAction(MESSAGE_WHEN_HAVE_COOLDOWN);
 		}
 
+		if (this.IsSingleUse && this.haveActionDebounce()) {
+			return FailedProcessAction("Action in processing");
+		}
+
 		this.giveCooldown();
+		const removeDebounce = this.giveActionDebounce();
+
 		const response = (await ClientFunctions.DoAction(
 			ActionSerializer.serialize({
 				Name: this.Name,
@@ -108,7 +161,9 @@ export abstract class Action<D extends object = {}, R = undefined> implements IA
 			}),
 		)) as ServerResponse<R>;
 
+		removeDebounce();
 		Action.OnGotResponse.Fire(this, response);
+
 		return response;
 	}
 
@@ -116,4 +171,8 @@ export abstract class Action<D extends object = {}, R = undefined> implements IA
 		this.Name = GetClassName(this);
 		this.Data = (data as D) ?? ({} as D);
 	}
+}
+
+export function WrapMessage(message?: string) {
+	return message !== undefined ? FailedProcessAction(message) : SuccessProcessAction();
 }

@@ -5,7 +5,7 @@ import { CreateAtom } from "shared/utilities/atom-utility";
 import { DeepCloneTable } from "shared/utilities/object-utilities";
 
 const gameAtom = CreateAtom(DeepCloneTable(GameDataSchema));
-Modding.registerDependency<GameAtom>((ctor) => gameAtom);
+Modding.registerDependency<GameAtom>(() => gameAtom);
 
 @Service({
 	loadOrder: -1,

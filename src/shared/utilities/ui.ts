@@ -29,7 +29,7 @@ export function combinePropsWithDefault<T extends object, D extends Partial<T>>(
 	return props as T & D;
 }
 
-export function PickProps<O extends object, C extends keyof O>(propNames: readonly C[], props: O) {
+export function PickProps<O extends object, C extends keyof O>(props: O, propNames: readonly C[], ) {
 	const newProps = {} as Pick<O, C>;
 
 	for (const [key, value] of pairs(props)) {
@@ -41,7 +41,7 @@ export function PickProps<O extends object, C extends keyof O>(propNames: readon
 	return newProps;
 }
 
-export function ExcludeProps<O extends object, C extends keyof O>(propNames: readonly C[], props: O) {
+export function ExcludeProps<O extends object, C extends keyof O>(props: O, propNames: readonly C[]) {
 	const newProps = table.clone(props) as Omit<O, C>;
 
 	propNames.forEach((value, index) => {

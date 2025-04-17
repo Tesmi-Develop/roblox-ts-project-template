@@ -7,7 +7,6 @@ const _playerDataSchema: playerData = {
 	Save: {
 		LastUpdate: GetCurrentTime(),
 		IsNewProfile: true,
-		Role: "User",
 	},
 	Dynamic: {},
 };

@@ -1,9 +1,11 @@
+/* eslint-disable @typescript-eslint/no-unused-expressions */
 import { Controller, Modding, OnInit } from "@flamework/core";
-import { subscribe, sync, SyncPayload } from "@rbxts/charm";
-import { SharedClasses } from "@rbxts/shared-classes-reflex";
+import { subscribe } from "@rbxts/charm";
+import { client, SyncPayload } from "@rbxts/charm-sync";
 import { Events } from "client/network";
 import { InjectType } from "shared/decorators/field/Inject-type";
 import { PlayerAtoms } from "shared/network";
+import { GameDataSchema } from "shared/schemas/game-data";
 import { GameAtom, GameData } from "shared/schemas/game-data-types";
 import { PlayerDataSchema } from "shared/schemas/player-data";
 import { PlayerData } from "shared/schemas/player-data-types";
@@ -11,7 +13,6 @@ import { CreateAtom, WrappedAtom } from "shared/utilities/atom-utility";
 import { GetCurrentThread } from "shared/utilities/function-utilities";
 import { DeepCloneTable } from "shared/utilities/object-utilities";
 import { ReflexDevToolsController } from "./reflex-devtools-controller";
-import { GameDataSchema } from "shared/schemas/game-data";
 
 export interface OnDataReplicated {
 	OnDataReplicated(): void;
@@ -39,7 +40,7 @@ export class PlayerController implements OnInit {
 		gameData: gameAtom,
 	} as unknown as PlayerAtoms;
 
-	private syncer = sync.client<PlayerAtoms>({
+	private syncer = client<PlayerAtoms>({
 		atoms: this.atoms,
 	});
 	private isGotData = false;
@@ -54,7 +55,6 @@ export class PlayerController implements OnInit {
 
 		this.expectData().then(() => {
 			listeners.forEach((listener) => listener.OnDataReplicated());
-			SharedClasses.StartClient();
 		});
 		this.StartReplication();
 	}

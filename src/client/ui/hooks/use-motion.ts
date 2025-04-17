@@ -1,6 +1,6 @@
-import { useEventListener, useLatest, useMountEffect } from "@rbxts/pretty-react-hooks";
+import { useLatest, useMountEffect } from "@rbxts/pretty-react-hooks";
+import { Binding, useBinding, useMemo } from "@rbxts/react";
 import { Motion, MotionGoal, createMotion } from "@rbxts/ripple";
-import { Binding, useMemo, useBinding } from "@rbxts/react";
 
 export function useMotion(
 	initialValue: number,

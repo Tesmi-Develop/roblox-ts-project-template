@@ -1,12 +1,22 @@
 import { BaseComponent } from "@flamework/components";
 import { Dependency, Flamework, Modding, OnInit, OnStart, Service } from "@flamework/core";
+import Log, { Logger } from "@rbxts/log";
 import { RunService } from "@rbxts/services";
 import { PlayerComponent } from "server/components/player-component";
 import { StartFlameworkUtils } from "shared/flamework-utils";
+import { IS_STUDIO } from "shared/utilities/constants";
 import { CreateIdGenerator } from "shared/utilities/function-utilities";
 import { GetIdentifier } from "shared/utilities/object-utilities";
+import { SetupLogger } from "shared/utilities/setup-logger";
 
 let isStartingFlamework = false;
+
+if (IS_STUDIO) {
+	Modding.registerDependency<Logger>((ctor) => {
+		SetupLogger();
+		return Log.ForContext(ctor);
+	});
+}
 
 const nextId = CreateIdGenerator(false);
 

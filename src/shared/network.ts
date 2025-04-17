@@ -11,6 +11,10 @@ interface ClientToServerEvents {
 
 interface ServerToClientEvents {
 	Dispatch(payload: {}): void;
+	onCastVFX(effectName: string, ...args: unknown[]): void;
+	onStopVFX(effectName: string, ...args: unknown[]): void;
+	OnCreateItemActivator(activatorName: string, droppedItem?: Model): void;
+	OnChangedStamina: Networking.Unreliable<(currentValue: number, lastReplicatedValue: number) => void>;
 }
 
 interface ClientToServerFunctions {

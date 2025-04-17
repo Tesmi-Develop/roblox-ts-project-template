@@ -1,8 +1,10 @@
+/* eslint-disable no-empty */
 /* eslint-disable roblox-ts/no-array-pairs */
 import { Flamework, Modding, Reflect } from "@flamework/core";
 import { Constructor } from "@flamework/core/out/utility";
 import { GetInjectTypes } from "shared/decorators/field/Inject-type";
 import { GetPlaceName, IS_ENABLED_MULTIPLE_PLACES, PlaceNames } from "shared/places";
+import { IS_STUDIO } from "shared/utilities/constants";
 import { ModifyConstructorMethod } from "shared/utilities/function-utilities";
 import { getDeferredConstructor } from "shared/utilities/object-utilities";
 import { VoidCallback } from "types/utility";
@@ -25,7 +27,9 @@ casted.resolveDependency = (spec) => {
 };
 
 export function ResolveDepedency(ctor: Constructor, spec: string, options = {}, index = 0) {
-	return castedModding.resolveDependency(ctor, spec, index, options);
+	try {
+		return castedModding.resolveDependency(ctor, spec, index, options);
+	} catch (e) {}
 }
 
 function InjectTypes(types: Map<string, string>, ctor: Constructor, options: {}, instance: object) {
@@ -125,12 +129,23 @@ const resolveMultiplaceObject = (id: string) => {
 	index !== -1 && components.remove(index);
 };
 
+function IsSigleton(ctor: object) {
+	if (IS_STUDIO)
+		return (
+			Reflect.getMetadata<boolean>(ctor, "flamework:decorators.$:flamework@Service") !== undefined ||
+			Reflect.getMetadata<boolean>(ctor, "flamework:decorators.$:flamework@Controller") !== undefined
+		);
+
+	return Reflect.getMetadata<boolean>(ctor, "flamework:singleton") !== undefined;
+}
+
 export const StartFlameworkUtils = () => {
 	for (const [id, ctor] of castedReflect.idToObj) {
 		IS_ENABLED_MULTIPLE_PLACES && resolveMultiplaceObject(id);
 
-		if (!Reflect.getMetadata<boolean>(ctor, "flamework:singleton") && !IsComponent(ctor)) continue;
+		if (!IsSigleton(ctor) && !IsComponent(ctor)) continue;
 		if (Reflect.getMetadata<boolean>(ctor, "flamework:optional")) continue;
+
 		resolveInjecting(ctor as Constructor);
 	}
 };

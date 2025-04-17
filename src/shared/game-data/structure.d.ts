@@ -1,5 +1,5 @@
-import { LuaConfigs } from "shared/game-data/configs";
-import { GlobalSettings } from "types/global-settings";
+import { GlobalSettings } from "shared/game-data/global-settings";
+import { LuaConfigs } from "./configs";
 
 export interface DataStructure {
 	GlobalSettings: GlobalSettings;

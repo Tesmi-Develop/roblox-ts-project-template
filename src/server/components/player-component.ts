@@ -10,7 +10,8 @@ import {
 import { DeepCloneTable, GetIdentifier } from "shared/utilities/object-utilities";
 
 import { Constructor } from "@flamework/core/out/utility";
-import { Atom, atom, Molecule, subscribe, SyncPayload } from "@rbxts/charm";
+import { Atom, atom, Molecule, subscribe } from "@rbxts/charm";
+import { server, ServerSyncer, SyncPayload } from "@rbxts/charm-sync";
 import { None, produce } from "@rbxts/immut";
 import { Draft } from "@rbxts/immut/src/types-external";
 import { Janitor } from "@rbxts/janitor";
@@ -26,6 +27,7 @@ import { InjectType } from "shared/decorators/field/Inject-type";
 import { IsCanUseObject } from "shared/flamework-utils";
 import { PlayerAtoms } from "shared/network";
 import { GetPlaceName } from "shared/places";
+import { GameAtom } from "shared/schemas/game-data-types";
 import { PlayerDataSchema, PlayerDataValidator } from "shared/schemas/player-data";
 import { PlayerData, PlayerSave } from "shared/schemas/player-data-types";
 import { DependenciesContainer } from "shared/utilities/dependencies-container";
@@ -34,6 +36,7 @@ import {
 	GetCurrentTime,
 	logAssert,
 } from "shared/utilities/function-utilities";
+import { ToPlayerInfo } from "shared/utilities/game-utility";
 import RepairDataFromDraft from "shared/utilities/repair-data-from-draft";
 import { DeepReadonly, Selector, VoidCallback } from "types/utility";
 
@@ -69,6 +72,7 @@ export interface PlayerAtom extends Molecule<PlayerData> {
 export class PlayerComponent extends BaseComponent<{}, Player> implements OnStart {
 	public readonly Name = this.instance.Name;
 	public readonly UserId = this.instance.UserId;
+	public readonly DisplayName = this.instance.DisplayName;
 
 	@InjectType
 	private dataStore!: DataStoreWrapperService;
@@ -78,6 +82,9 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 
 	@InjectType
 	private playerService!: PlayerService;
+
+	@InjectType
+	private gameAtom!: GameAtom;
 
 	private readonly janitor = new Janitor();
 	private destroyConnections: (() => void)[] = [];
@@ -93,6 +100,7 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 	private lastCommittedData?: PlayerData;
 	private isDestroying = false;
 	private lockedModules = new Set<string>();
+	private syncer!: ServerSyncer<PlayerAtoms, false>;
 	private container = new DependenciesContainer(true);
 
 	public static onAdded(callback: (component: PlayerComponent, player: Player) => void) {
@@ -108,6 +116,7 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 
 	public async onStart() {
 		this.container.Register<PlayerComponent>(() => this);
+		this.container.Register<DependenciesContainer>(() => this.container);
 
 		this.playerService.AddPlayer(this);
 		const playerData = DeepCloneTable(PlayerDataSchema);
@@ -120,7 +129,7 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 		if (!sucess) return;
 
 		const finalData = RepairDataFromDraft(
-			profileData ? DeepCloneTable(profileData) : playerData,
+			profileData ? DeepCloneTable(profileData) : playerData.Save,
 		) as DeepReadonly<PlayerSave>;
 		finalData && this.setData({ Save: finalData, Dynamic: playerData.Dynamic }, false);
 
@@ -158,6 +167,10 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 		success && this.invokeOnSendDataEvent();
 
 		return success;
+	}
+
+	public ToPlayerInfo() {
+		return ToPlayerInfo(this);
 	}
 
 	public Keep() {
@@ -318,7 +331,7 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 	}
 
 	private setData(data: PlayerData, validate = true) {
-		const newData = RepairDataFromDraft(data);
+		const newData = data;
 		data = newData ?? data;
 
 		if (!IsTestMode() && !PlayerDataValidator(data) && validate) {
@@ -331,6 +344,15 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 
 		this.atom(data);
 		return true;
+	}
+
+	/**
+	 * DONT USE, ONLY FOR EDITING
+	 * @internal
+	 * @hidden
+	 * */
+	public SetData(data: PlayerData) {
+		this.setData(data, false);
 	}
 
 	private setStatus(status: Status) {
@@ -346,15 +368,29 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 
 	private hydrate() {
 		if (IsTestMode()) return;
-		this.doDispatch(this.playerService.GenerateHydratePayload(this.atom) as never);
+		this.syncer.hydrate(this.instance);
 	}
 
-	private doDispatch(payload: SyncPayload<PlayerAtoms>) {
+	private doDispatch(payload: SyncPayload<PlayerAtoms, false>) {
 		Events.Dispatch.fire(this.instance, payload);
 	}
 
 	private initSyncer() {
 		if (IsTestMode()) return;
+
+		this.syncer = server({
+			atoms: {
+				playerData: this.atom,
+				gameData: this.gameAtom,
+			},
+		}) as never;
+
+		this.janitor.Add(
+			this.syncer.connect((player, payload) => {
+				if (player !== this.instance) return;
+				this.doDispatch(payload);
+			}),
+		);
 
 		if (HYDRATE_RATE > 0) {
 			this.janitor.Add(
@@ -364,12 +400,6 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 				}, HYDRATE_RATE),
 			);
 		}
-
-		this.janitor.Add(
-			this.playerService.ConnectPlayerSync(this.atom as never, (payload) => {
-				this.doDispatch(payload);
-			}),
-		);
 	}
 
 	private invokeOnSendDataEvent() {
@@ -498,11 +528,11 @@ export class PlayerComponent extends BaseComponent<{}, Player> implements OnStar
 		);
 
 		// Step 4 - Call constructors
-		moduleConstructors.forEach((constructor, instance) => {
+		moduleConstructors.forEach((constructor) => {
 			constructor();
 		});
 
-		this.modules.forEach((module, key) => {
+		this.modules.forEach((module) => {
 			const loadOrder = Reflect.getMetadata<number>(module, "playerModule:loadOrder") ?? 1;
 			this.orderedModules.push([module, loadOrder]);
 		});

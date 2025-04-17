@@ -4,7 +4,7 @@ import { ModifyConstructorMethod } from "shared/utilities/function-utilities";
 
 const INJECT_KEY = "Inject";
 
-/** @metadata flamework:type */
+/** @metadata flamework:type @deprecated */
 export const Inject = (ctor: object, property: string) => {
 	const injectedType = Reflect.getMetadata<string>(ctor, "flamework:type", property);
 	assert(injectedType, "Injected type not found");

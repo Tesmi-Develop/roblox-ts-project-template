@@ -1,4 +1,1 @@
-export enum Tags {
-	Character = "Character",
-	IgnoreRaycast = "IgnoreRaycast",
-}
+export enum Tags {}

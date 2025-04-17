@@ -3,7 +3,7 @@ local BASE = "_base"
 
 local function RepairDataFromDraft<T>(draft: T): T?
 	if typeof(draft) ~= "table" then
-		return
+		return draft
 	end
 
 	if draft[CLONE] == nil and draft[BASE] == nil then
@@ -13,7 +13,7 @@ local function RepairDataFromDraft<T>(draft: T): T?
 			draft[key] = val
 		end
 
-		return
+		return draft
 	end
 
 	local final = draft[CLONE] or draft[BASE]
